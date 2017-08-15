@@ -1,11 +1,2 @@
-*
-!.gitignore
-!*_test.go
-!any_proxy.go
-!make.bash
-!stats.go
-!COPYING
-!README*
-!builds/
-!debian/
-!flogger/
+version.go
+go-any-proxy
