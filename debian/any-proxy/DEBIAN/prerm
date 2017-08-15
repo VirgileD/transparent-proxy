@@ -1,4 +1,0 @@
-#!/bin/bash
-set -e
-
-invoke-rc.d any_proxy stop
