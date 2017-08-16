@@ -613,6 +613,9 @@ func handleDirectConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 			directConnRemoteAddr = fmt.Sprintf("%v", directConn.RemoteAddr())
 		}
 		log.Infof("DIRECT|%v->%v|Could not connect, giving up: %v", clientConnRemoteAddr, directConnRemoteAddr, err)
+		if err = clientConn.Close(); err != nil {
+			log.Debugf("handleDirectConnection(): close clientConn error: %v", err)
+		}
 		return
 	}
 	log.Debugf("DIRECT|%v->%v|Connected to remote end", clientConn.RemoteAddr(), directConn.RemoteAddr())
