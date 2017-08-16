@@ -1,13 +1,14 @@
 **This is fork project from https://github.com/ryanchapman/go-any-proxy, but add a few features.**
-# Any Proxy
 
-go-any-proxy is a server that can transparently proxy any tcp connection through an upstream proxy server.  This type
+# Transparent Proxy
+
+transparent-proxy is a server that can transparently proxy any tcp connection through an upstream proxy server.  This type
 of setup is common in corporate environments.  It is written in golang and has been load tested with 10,000 concurrent
 connections successfully on a Vyatta running a 64-bit kernel.
 
 ## More info
 
-For more info, see http://blog.rchapman.org/post/47406142744/transparently-proxying-http-and-https-connections
+For more info, see original post http://blog.rchapman.org/post/47406142744/transparently-proxying-http-and-https-connections
 
 ## Authentication
 
@@ -23,7 +24,7 @@ This project support docker and integrated iptables for container start/stop.
 
 Using following command to start transparent proxy on host:
 ```
-docker run -it --rm --privileged -e HTTP_PROXY=proxy.corporate.com:8080 -e NO_PROXY=192.176.0.1/8,172.10.0.1/8 -e LISTEN_PORT=3129 -e IPTABLE_MARK=2515 -e PROXY_PORTS=80,443,22 --net=host feng-zh/transparent-proxy
+docker run -it --rm --privileged -e HTTP_PROXY=proxy.corporate.com:8080 -e NO_PROXY=192.176.0.1/8,172.10.0.1/8 -e LISTEN_PORT=3129 -e IPTABLE_MARK=2515 -e PROXY_PORTS=80,443,22 --net=host fengzhou/transparent-proxy
 ```
 
 The options are important for run docker:
