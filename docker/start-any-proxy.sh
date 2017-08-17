@@ -23,7 +23,6 @@ function install_iptables() {
   iptables -t nat -A OUTPUT -o e+ -p tcp --match multiport --dports ${PROXY_PORTS} -j REDIRECT --to-port ${LISTEN_PORT}
   iptables -t nat -A PREROUTING -i docker+ -p tcp --match multiport --dports ${PROXY_PORTS} -j ACCEPT -d ${NO_PROXY_LIST}
   iptables -t nat -A PREROUTING -i docker+ -p tcp --match multiport --dports ${PROXY_PORTS} -j REDIRECT --to-port ${LISTEN_PORT}
-  trap 'kill -TERM $PID; uninstall_iptables' 0 2 3 15
   IPTABLE_SET=1
 }
 
@@ -32,7 +31,6 @@ function uninstall_iptables() {
     return
   fi
   trap - 0 2 3 15
-  wait $PID
   iptables -t filter -D OUTPUT -p tcp -m mark --mark ${IPTABLE_MARK} --dport ${LISTEN_PORT} -j REJECT
   iptables -t nat -D OUTPUT -p tcp -m mark --mark ${IPTABLE_MARK} -j ACCEPT
   iptables -t nat -D OUTPUT -o e+ -p tcp --match multiport --dports ${PROXY_PORTS} -j ACCEPT -d ${NO_PROXY_LIST}
@@ -42,11 +40,16 @@ function uninstall_iptables() {
   IPTABLE_SET=0
 }
 
-install_iptables
+trap 'uninstall_iptables; kill -TERM $PID' 0 2 3 15
 
 /bin/go-any-proxy -l :${LISTEN_PORT} -p ${HTTP_PROXY} -d ${NO_PROXY_LIST} -v=${PROXY_VERBOSE} -f=/dev/stdout -k ${IPTABLE_MARK} &
 
 PID=$!
+
+install_iptables
+
 wait $PID
 
 uninstall_iptables
+
+wait $PID
