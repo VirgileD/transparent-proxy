@@ -78,6 +78,8 @@ var gMemProfile string
 var gClientRedirects int
 var gReverseLookups int
 var gIpTableMark int
+var gDnsListenAddrPort string
+var gProxyConfigFile string
 
 type cacheEntry struct {
 	hostname string
@@ -99,7 +101,6 @@ func (c *reverseLookupCache) lookup(ipv4 string) string {
 	hit := c.hostnames[ipv4]
 	if hit != nil {
 		if hit.expires.After(time.Now()) {
-			log.Debugf("lookup(): CACHE_HIT")
 			return hit.hostname
 		} else {
 			log.Debugf("lookup(): CACHE_EXPIRED")
@@ -110,18 +111,41 @@ func (c *reverseLookupCache) lookup(ipv4 string) string {
 	}
 	return ""
 }
+
 func (c *reverseLookupCache) store(ipv4, hostname string) {
+	c.storeTtl(ipv4, hostname, int(time.Hour/time.Second))
+}
+
+func (c *reverseLookupCache) storeTtl(ipv4, hostname string, ttl int) {
 	delete(c.hostnames, c.keys[c.next])
 	c.keys[c.next] = ipv4
 	c.next = (c.next + 1) & 65535
-	c.hostnames[ipv4] = &cacheEntry{hostname: hostname, expires: time.Now().Add(time.Hour)}
+	c.hostnames[ipv4] = &cacheEntry{hostname: hostname, expires: time.Now().Add(time.Duration(ttl) * time.Second)}
 }
 
-var gReverseLookupCache *reverseLookupCache
+func ListHostNames() map[string]string {
+	c := gReverseLookupCache
+	m := make(map[string]string)
+	for ipv4, entry := range c.hostnames {
+		m[entry.hostname] = ipv4
+	}
+	return m
+}
+
+func GetHostName(ip string) string {
+	hostname := gReverseLookupCache.lookup(ip)
+	return hostname
+}
+
+var gReverseLookupCache = NewReverseLookupCache()
 
 type directorFunc func(*net.IP) bool
 
 var director func(*net.IP) (bool, int)
+
+var proxyResolver = func(ipv4 string, port uint16, defaultProxyList []string) []string {
+	return defaultProxyList
+}
 
 func init() {
 	flag.Usage = func() {
@@ -186,6 +210,8 @@ func init() {
 	flag.IntVar(&gSkipCheckUpstreamsReachable, "s", 0, "On startup, should we check if the upstreams are available? -s=0 means we should and if one is found to be not reachable, then remove it from the upstream list.\n")
 	flag.IntVar(&gVerbosity, "v", 0, "Control level of logging. v=1 results in debugging info printed to the log.\n")
 	flag.IntVar(&gIpTableMark, "k", 5, "Mark value set in proxy stream, default is 5.\n")
+	flag.StringVar(&gDnsListenAddrPort, "dns", "", "Address and port for DNS Proxy to intercept name resolving.\n")
+	flag.StringVar(&gProxyConfigFile, "pf", "", "Additional proxy configuration file for advanced proxy routing.\n")
 
 	dirFuncs := buildDirectors(gDirects)
 	director = getDirector(dirFuncs)
@@ -280,7 +306,7 @@ func setupProfiling() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	go func() {
-		for _ = range c {
+		for range c {
 			if gCpuProfile != "" {
 				pprof.StopCPUProfile()
 			}
@@ -320,15 +346,36 @@ func main() {
 	setupLogging()
 	setupProfiling()
 	setupStats()
+	setupStackDump()
 
 	dirFuncs := buildDirectors(gDirects)
-	director = getDirector(dirFuncs)
 
-	if gReverseLookups == 1 {
-		gReverseLookupCache = NewReverseLookupCache()
+	if gProxyConfigFile != "" {
+		file, err := os.Open(gProxyConfigFile)
+		if err != nil {
+			panic(err)
+		}
+		log.Infof("Using proxy config file :%v", gProxyConfigFile)
+		proxyConfig := NewProxyConfig(file)
+		if err := file.Close(); err != nil {
+			panic(err)
+		}
+		proxyResolver = proxyConfig.ResolveProxy
+		dirFuncs = append(dirFuncs, proxyConfig.DirectorFunc(false)...)
 	}
 
+	director = getDirector(dirFuncs)
+
 	log.RedirectStreams()
+
+	if gDnsListenAddrPort != "" {
+		dp := NewDnsProxy(gDnsListenAddrPort, "")
+		if err := dp.ListenAndServe(false); err != nil {
+			log.Warningf("Error open dns proxy on %v: %v", gDnsListenAddrPort, err)
+		}
+		defer dp.Close()
+		log.Infof("Listening DNS proxy on %v", gDnsListenAddrPort)
+	}
 
 	// if user gave us upstream proxies, check and see if they are alive
 	if gProxyServerSpec != "" {
@@ -404,11 +451,13 @@ func ioCopy(dst io.ReadWriteCloser, src io.ReadWriteCloser, dstname string, srcn
 		log.Debugf("copy(): oops, src is nil!")
 		return
 	}
-	_, err := io.Copy(dst, src)
+	copied, err := io.Copy(dst, src)
 	if err != nil {
 		if operr, ok := err.(*net.OpError); ok {
-			if srcname == "directserver" || srcname == "proxyserver" {
-				log.Debugf("copy(): %s->%s: Op=%s, Net=%s, Addr=%v, Err=%v", srcname, dstname, operr.Op, operr.Net, operr.Addr, operr.Err)
+			if innerOperr, innerOk := operr.Err.(*net.OpError); innerOk && innerOperr.Err.Error() == "use of closed network connection" {
+				log.Debugf("copy(): CLOSED %s->%s: Addr=%v, RemoteAddr=%v, Copied=%v", srcname, dstname, operr.Addr, innerOperr.Addr, copied)
+			} else {
+				log.Debugf("copy(): ERROR %s->%s: Op=%s, Net=%s, Addr=%v, Err=%v, Copied=%v", srcname, dstname, operr.Op, operr.Net, operr.Addr, operr.Err, copied)
 			}
 			if operr.Op == "read" {
 				if srcname == "proxyserver" {
@@ -426,7 +475,11 @@ func ioCopy(dst io.ReadWriteCloser, src io.ReadWriteCloser, dstname string, srcn
 					incrDirectServerWriteErr()
 				}
 			}
+		} else {
+			log.Debugf("copy(): ERROR %s->%s: Err=%v, Copied=%v", srcname, dstname, err, copied)
 		}
+	} else {
+		log.Debugf("copy(): DONE %s->%s: Copied=%v", srcname, dstname, copied)
 	}
 	dst.Close()
 	src.Close()
@@ -527,7 +580,7 @@ func ipAndZoneToSockaddr(ip net.IP, zone string) syscall.Sockaddr {
 	panic("should be unreachable")
 }
 
-var resolver = dnscache.New(time.Minute * 5)
+var resolver = dnscache.New(time.Minute * 30)
 
 func dial(spec string) (*net.TCPConn, error) {
 	host, port, err := net.SplitHostPort(spec)
@@ -552,15 +605,15 @@ func dial(spec string) (*net.TCPConn, error) {
 	sa := netAddrToSockaddr(remoteAddrAndPort)
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
 	if err != nil {
+		log.Infof("dial(): ERR: could not create socket: %v", err)
 		return nil, err
 	}
 	err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, gIpTableMark)
 	if err != nil {
-		log.Infof("dial(): ERR: could not set sockopt with mark %v: %v", gIpTableMark, err)
+		log.Debugf("dial(): ERR: could not set sockopt with mark %v: %v", gIpTableMark, err)
 		syscall.Close(fd)
 		return nil, err
 	}
-	log.Debugf("Set socket mark value %v", gIpTableMark)
 	err = syscall.Connect(fd, sa)
 	if err != nil {
 		log.Infof("dial(): ERR: could not connect to %v:%v: %v", remoteIP, portInt, err)
@@ -569,8 +622,12 @@ func dial(spec string) (*net.TCPConn, error) {
 	}
 	file := os.NewFile(uintptr(fd), "")
 	conn, err := net.FileConn(file)
+	// duplicate file created need to close
+	if closeErr := file.Close(); closeErr != nil {
+		log.Errorf("dial(): ERR: cannot close file %v: %v", fd, closeErr)
+	}
 	if err != nil {
-		syscall.Close(fd)
+		log.Infof("dial(): ERR: could not create connection with fd %v: %v", fd, err)
 		return nil, err
 	}
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
@@ -580,9 +637,6 @@ func dial(spec string) (*net.TCPConn, error) {
 }
 
 func handleDirectConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
-	// TODO: remove
-	log.Debugf("Enter handleDirectConnection: clientConn=%+v (%T)\n", clientConn, clientConn)
-
 	if clientConn == nil {
 		log.Debugf("handleDirectConnection(): oops, clientConn is nil!")
 		return
@@ -625,9 +679,6 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 	var host string
 	var headerXFF string = ""
 
-	// TODO: remove
-	log.Debugf("Enter handleProxyConnection: clientConn=%+v (%T)\n", clientConn, clientConn)
-
 	if clientConn == nil {
 		log.Debugf("handleProxyConnection(): oops, clientConn is nil!")
 		return
@@ -659,7 +710,8 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 		}
 	}
 
-	for _, proxySpec := range gProxyServers {
+	for _, proxySpec := range proxyResolver(ipv4, port, gProxyServers) {
+		log.Debugf("Using proxy %v for %v:%v", proxySpec, ipv4, port)
 		proxyConn, err = dial(proxySpec)
 		if err != nil {
 			log.Debugf("PROXY|%v->%v->%s:%d|Trying next proxy.", clientConn.RemoteAddr(), proxySpec, ipv4, port)
@@ -711,7 +763,7 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 	}
 	if success == false {
 		log.Infof("PROXY|%v->UNAVAILABLE->%s:%d|ERR: Tried all proxies, but could not establish connection. Giving up.\n", clientConn.RemoteAddr(), ipv4, port)
-		fmt.Fprintf(clientConn, "HTTP/1.0 503 Service Unavailable\r\nServer: go-any-proxy\r\nX-AnyProxy-Error: ERR_NO_PROXIES\r\n\r\n")
+		fmt.Fprint(clientConn, "HTTP/1.0 503 Service Unavailable\r\nServer: go-any-proxy\r\nX-AnyProxy-Error: ERR_NO_PROXIES\r\n\r\n")
 		clientConn.Close()
 		return
 	}
