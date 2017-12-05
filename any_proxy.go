@@ -451,7 +451,15 @@ func getOriginalDst(clientConn *net.TCPConn) (ipv4 string, port uint16, newTCPCo
 	// Use reflect to get internal sysfd
 	rawClientConn := reflect.ValueOf(clientConn).Elem()
 	rawFd := rawClientConn.FieldByName("fd").Elem()
-	rawSysFd := rawFd.FieldByName("sysfd").Int()
+	valuePfd := rawFd.FieldByName("pfd")
+	var rawSysFd int64
+	if valuePfd.IsValid() {
+		// go1.9
+		rawSysFd = valuePfd.FieldByName("Sysfd").Int()
+	} else {
+		// < go1.9
+		rawSysFd = rawFd.FieldByName("sysfd").Int()
+	}
 	// Get original destination
 	// this is the only syscall in the Golang libs that I can find that returns 16 bytes
 	// Example result: &{Multiaddr:[2 0 31 144 206 190 36 45 0 0 0 0 0 0 0 0] Interface:0}
