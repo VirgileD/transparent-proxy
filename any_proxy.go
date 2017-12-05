@@ -46,6 +46,7 @@ import (
 	"flag"
 	"fmt"
 	log "github.com/zdannar/flogger"
+	"github.com/viki-org/dnscache"
 	"io"
 	"net"
 	"os"
@@ -526,23 +527,28 @@ func ipAndZoneToSockaddr(ip net.IP, zone string) syscall.Sockaddr {
 	panic("should be unreachable")
 }
 
+var resolver = dnscache.New(time.Minute * 5)
+
 func dial(spec string) (*net.TCPConn, error) {
 	host, port, err := net.SplitHostPort(spec)
 	if err != nil {
 		log.Infof("dial(): ERR: could not extract host and port from spec %v: %v", spec, err)
 		return nil, err
 	}
-	remoteAddr, err := net.ResolveIPAddr("ip", host)
-	if err != nil {
-		log.Infof("dial(): ERR: could not resolve %v: %v", host, err)
-		return nil, err
+	remoteIP := net.ParseIP(host)
+	if remoteIP == nil {
+		remoteIP, err = resolver.FetchOne(host)
+		if err != nil {
+			log.Infof("dial(): ERR: could not resolve %v: %v", host, err)
+			return nil, err
+		}
 	}
 	portInt, err := strconv.Atoi(port)
 	if err != nil {
 		log.Infof("dial(): ERR: could not convert network port from string \"%s\" to integer: %v", port, err)
 		return nil, err
 	}
-	remoteAddrAndPort := &net.TCPAddr{IP: remoteAddr.IP, Port: portInt}
+	remoteAddrAndPort := &net.TCPAddr{IP: remoteIP, Port: portInt}
 	sa := netAddrToSockaddr(remoteAddrAndPort)
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
 	if err != nil {
@@ -557,7 +563,7 @@ func dial(spec string) (*net.TCPConn, error) {
 	log.Debugf("Set socket mark value %v", gIpTableMark)
 	err = syscall.Connect(fd, sa)
 	if err != nil {
-		log.Infof("dial(): ERR: could not connect to %v:%v: %v", remoteAddr.IP, portInt, err)
+		log.Infof("dial(): ERR: could not connect to %v:%v: %v", remoteIP, portInt, err)
 		syscall.Close(fd)
 		return nil, err
 	}
