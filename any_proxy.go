@@ -41,7 +41,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -58,6 +57,7 @@ import (
 	"syscall"
 	"time"
 	"reflect"
+	"golang.org/x/net/proxy"
 )
 
 const VERSION = "1.2"
@@ -70,8 +70,7 @@ var gProxyServerSpec string
 var gDirects string
 var gVerbosity int
 var gSkipCheckUpstreamsReachable int
-var gProxyServers []string
-var gAuthProxyServers = map[string]string{}
+var gProxyServers []*Proxy
 var gLogfile string
 var gCpuProfile string
 var gMemProfile string
@@ -143,7 +142,7 @@ type directorFunc func(*net.IP) bool
 
 var director func(*net.IP) (bool, int)
 
-var proxyResolver = func(ipv4 string, port uint16, defaultProxyList []string) []string {
+var proxyResolver = func(ipv4 string, port uint16, defaultProxyList []*Proxy) []*Proxy {
 	return defaultProxyList
 }
 
@@ -408,21 +407,20 @@ func main() {
 }
 
 func checkProxies() {
-	gProxyServers = strings.Split(gProxyServerSpec, ",")
+	var err error
+	gProxyServers, err = ParseProxyList(gProxyServerSpec)
+	if err != nil {
+		log.Errorf("Invalid proxy list: %s", err)
+		msg := "Parse proxy list failure. Exiting."
+		log.Infof("%s\n", msg)
+		fmt.Fprintf(os.Stderr, msg)
+		os.Exit(1)
+	}
 	// make sure proxies resolve and are listening on specified port, unless -s=1, then don't check for reachability
 	for i, proxySpec := range gProxyServers {
-		if strings.Contains(proxySpec, "@") {
-			var authSplit = strings.Split(proxySpec, "@")
-			var b64Auth = base64.StdEncoding.EncodeToString([]byte(authSplit[0]))
-			gAuthProxyServers[authSplit[1]] = b64Auth
-			proxySpec = authSplit[1]
-			gProxyServers[i] = proxySpec
-			log.Infof("Added authentication %v, %v\n", authSplit[0], b64Auth)
-		}
-
 		log.Infof("Added proxy server %v\n", proxySpec)
 		if gSkipCheckUpstreamsReachable != 1 {
-			conn, err := dial(proxySpec)
+			conn, err := dial(proxySpec.HostPort())
 			if err != nil {
 				log.Infof("Test connection to %v: failed. Removing from proxy server list\n", proxySpec)
 				a := gProxyServers[:i]
@@ -582,7 +580,7 @@ func ipAndZoneToSockaddr(ip net.IP, zone string) syscall.Sockaddr {
 
 var resolver = dnscache.New(time.Minute * 30)
 
-func dial(spec string) (*net.TCPConn, error) {
+func dial(spec string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(spec)
 	if err != nil {
 		log.Infof("dial(): ERR: could not extract host and port from spec %v: %v", spec, err)
@@ -712,15 +710,30 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 
 	for _, proxySpec := range proxyResolver(ipv4, port, gProxyServers) {
 		log.Debugf("Using proxy %v for %v:%v", proxySpec, ipv4, port)
-		proxyConn, err = dial(proxySpec)
+		// handle socks5 proxy
+		if proxySpec.Type == Socks5ProxyType {
+			socks5Dial, err := proxy.SOCKS5("tcp", proxySpec.HostPort(), proxySpec.Auth, proxy.Direct)
+			if err == nil {
+				log.Debugf("PROXY|%v->%v->%s:%d|Connecting via socks5 proxy\n", clientConn.RemoteAddr(), proxySpec.HostPort(), ipv4, port)
+				proxyConn, err = socks5Dial.Dial("tcp", fmt.Sprintf("%s:%d", ipv4, port))
+			}
+			if err != nil {
+				log.Debugf("PROXY|%v->%v->%s:%d|Trying next proxy.", clientConn.RemoteAddr(), proxySpec, ipv4, port)
+				continue
+			}
+			log.Debugf("PROXY|%v->%v->%s:%d|Socks5 proxied connection", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port)
+			success = true
+			break
+		}
+		proxyConn, err = dial(proxySpec.HostPort())
 		if err != nil {
 			log.Debugf("PROXY|%v->%v->%s:%d|Trying next proxy.", clientConn.RemoteAddr(), proxySpec, ipv4, port)
 			continue
 		}
 		log.Debugf("PROXY|%v->%v->%s:%d|Connected to proxy\n", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port)
-		var authString = ""
-		if val, auth := gAuthProxyServers[proxySpec]; auth {
-			authString = fmt.Sprintf("\r\nProxy-Authorization: Basic %s", val)
+		var authString = proxySpec.UserInfoBase64()
+		if authString != "" {
+			authString = fmt.Sprintf("\r\nProxy-Authorization: Basic %s", authString)
 		}
 		connectString := fmt.Sprintf("CONNECT %s:%d HTTP/1.0%s\r\n%s\r\n", ipv4, port, authString, headerXFF)
 		log.Debugf("PROXY|%v->%v->%s:%d|Sending to proxy: %s\n", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port, strconv.Quote(connectString))
@@ -758,7 +771,7 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 		break
 	}
 	if proxyConn == nil {
-		log.Debugf("handleProxyConnection(): oops, proxyConn is nil!")
+		log.Warningf("handleProxyConnection(): oops, proxyConn is nil!")
 		return
 	}
 	if success == false {

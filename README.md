@@ -25,6 +25,7 @@ This project support docker and integrated iptables for container start/stop.
 Additional features supported:
 - Use DNS proxy to intercept DNS resolving request if "DNS_PORT" is enabled
 - Advanced proxy routing based on configuration file for multiple proxy servers on ip/ip-net/domain-pattern
+- Support `socks5` proxy type in advanced proxy routing (The port of socks5 proxy should not in list of proxy ports)
 
 Using the following command to start transparent proxy on host:
 ```
@@ -46,6 +47,8 @@ The options are important for run docker:
 ## Proxy Configuration File
 To enable advanced proxy routing, "-df" option for application, or "PROXY_CONFIG_FILE" environment for docker can be used.
 
+Each proxy configuration can set proxy `type` with value: http or socks5. If no `type` defined, by default it is http proxy.
+
 Here is sample configuration file.
 ```yaml
 ---
@@ -64,6 +67,10 @@ rules:
 proxy: proxy2.example.com:8080
 rules:
   - '*.net'
+proxy: proxy3.example.com:1080
+type: socks5
+rules:
+  - '*.io'
 ```
 
 Each proxy routing is separated by `---`. For proxy with empty value, it is special rule for additional direct connect (no proxy).

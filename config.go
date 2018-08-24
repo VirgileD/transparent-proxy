@@ -14,8 +14,9 @@ import (
 )
 
 type ProxyRule struct {
-	Proxy string   `yaml:"proxy"`
-	Rules []string `yaml:"rules"`
+	Proxy string    `yaml:"proxy"`
+	Type  ProxyType `yaml:"type"`
+	Rules []string  `yaml:"rules"`
 }
 
 type proxyConfig struct {
@@ -56,6 +57,12 @@ func unmarshalProxyRules(r io.Reader) ([]ProxyRule, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		// default is http proxy if proxy has value
+		if proxyRule.Type == "" && proxyRule.Proxy != "" {
+			proxyRule.Type = HttpProxyType
+		}
+
 		list = append(list, proxyRule)
 	}
 	if err := scanner.Err(); err != nil {
@@ -77,7 +84,7 @@ func (config *proxyConfig) DirectorFunc(onlyNoProxy bool) []directorFunc {
 		return directorFuncs
 	}
 	proxyDirector := func(ptestip *net.IP) bool {
-		if len(config.ResolveProxy(ptestip.String(), 0, []string{})) > 0 {
+		if len(config.ResolveProxy(ptestip.String(), 0, []*Proxy{})) > 0 {
 			return false
 		} else {
 			for _, f := range directorFuncs {
@@ -132,10 +139,15 @@ func ruleAsDirectorFunc(rule string) directorFunc {
 	return dfunc
 }
 
-func (config *proxyConfig) ResolveProxy(ipv4 string, port uint16, defaultProxyList []string) []string {
+func (config *proxyConfig) ResolveProxy(ipv4 string, port uint16, defaultProxyList []*Proxy) []*Proxy {
 	var hostname *string = nil
 	for _, cpr := range config.proxyRules {
 		if cpr.Proxy != "" {
+			proxy, err := ParseProxy(cpr.Proxy)
+			if err != nil {
+				panic(err)
+			}
+			proxy.Type = cpr.Type
 			for _, rule := range cpr.Rules {
 				if isDomain(rule) {
 					pattern := strings.Replace(rule, ".", "\\.", -1)
@@ -154,7 +166,7 @@ func (config *proxyConfig) ResolveProxy(ipv4 string, port uint16, defaultProxyLi
 					*hostname = strings.TrimSuffix(*hostname, ".")
 					if re.MatchString(*hostname) {
 						logger.Debugf("resolve proxy by domain %v(%v:%v): %v", *hostname, ipv4, port, cpr.Proxy)
-						return insert(cpr.Proxy, defaultProxyList)
+						return insert(proxy, defaultProxyList)
 					}
 				} else if isCIDR(rule) {
 					_, directorIpNet, err := net.ParseCIDR(rule)
@@ -163,13 +175,13 @@ func (config *proxyConfig) ResolveProxy(ipv4 string, port uint16, defaultProxyLi
 					}
 					if directorIpNet.Contains(net.ParseIP(ipv4)) {
 						logger.Debugf("resolve proxy by IP net %v(%v:%v): %v", directorIpNet, ipv4, port, cpr.Proxy)
-						return insert(cpr.Proxy, defaultProxyList)
+						return insert(proxy, defaultProxyList)
 					}
 				} else {
 					// IP
 					if rule == ipv4 {
 						logger.Debugf("resolve proxy by IP %v:%v: %v", ipv4, port, cpr.Proxy)
-						return insert(cpr.Proxy, defaultProxyList)
+						return insert(proxy, defaultProxyList)
 					}
 				}
 			}
@@ -178,9 +190,9 @@ func (config *proxyConfig) ResolveProxy(ipv4 string, port uint16, defaultProxyLi
 	return defaultProxyList
 }
 
-func insert(str string, list []string) []string {
-	newList := make([]string, 1+len(list))
-	newList[0] = str
+func insert(proxy *Proxy, list []*Proxy) []*Proxy {
+	newList := make([]*Proxy, 1+len(list))
+	newList[0] = proxy
 	copy(newList[1:], list)
 	return newList
 }

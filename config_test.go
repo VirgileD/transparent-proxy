@@ -24,15 +24,25 @@ rules:
 proxy: proxy2.example.com:8080
 rules:
   - '*.net'
+---
+proxy: proxy3.example.com:1080
+type: socks5
+rules:
+  - '*.io'
 `
+
+var proxy1, _ = ParseProxy("proxy1.example.com:8080")
+var proxy2, _ = ParseProxy("proxy2.example.com:8080")
+var proxy3, _ = ParseProxy("socks5://proxy3.example.com:1080")
 
 var expectedData = [...]ProxyRule{
 	{Rules: []string{"10.0.0.0/8", "192.168.0.0/16", "*.example.net"}},
-	{Proxy: "proxy1.example.com:8080", Rules: []string{"172.168.1.0/16", "*.example.com", "*.example.*"}},
-	{Proxy: "proxy2.example.com:8080", Rules: []string{"*.net"}},
+	{Proxy: proxy1.HostPort(), Type: proxy1.Type, Rules: []string{"172.168.1.0/16", "*.example.com", "*.example.*"}},
+	{Proxy: proxy2.HostPort(), Type: proxy2.Type, Rules: []string{"*.net"}},
+	{Proxy: proxy3.HostPort(), Type: proxy3.Type, Rules: []string{"*.io"}},
 }
 
-func TestUnmarshalProxyRules(t *testing.T) {
+func TestProxyConfig_UnmarshalProxyRules(t *testing.T) {
 	config := NewProxyConfig(strings.NewReader(data))
 	assert.Len(t, config.proxyRules, len(expectedData))
 	for i, d := range expectedData {
@@ -108,7 +118,7 @@ func TestProxyConfig_DirectorFunc_All(t *testing.T) {
 	}
 }
 
-func TestProxyConfig_ResolveProxy(t *testing.T) {
+func TestProxyConfig_ResolveHttpProxy(t *testing.T) {
 	config := NewProxyConfig(strings.NewReader(data))
 	fakeHosts := map[string]string{
 		"12.12.12.12": "www.example.org",
@@ -120,17 +130,44 @@ func TestProxyConfig_ResolveProxy(t *testing.T) {
 	findHostName = func(ip string) string {
 		return fakeHosts[ip]
 	}
-	var defaultProxy = "proxy.example.com:8080"
-	results := map[string]string{
-		"172.168.1.1": "proxy1.example.com:8080",
-		"13.12.12.12": "proxy1.example.com:8080",
-		"12.12.12.12": "proxy1.example.com:8080",
+	var defaultProxy, _ = ParseProxy("proxy.example.com:8080")
+	results := map[string]*Proxy{
+		"172.168.1.1": proxy1,
+		"13.12.12.12": proxy1,
+		"12.12.12.12": proxy1,
 		"12.12.12.13": defaultProxy,
-		"12.12.12.14": "proxy2.example.com:8080",
-		"10.1.2.3":    "proxy1.example.com:8080",
+		"12.12.12.14": proxy2,
+		"10.1.2.3":    proxy1,
 		"1.1.1.1":     defaultProxy,
 	}
 	for k, v := range results {
-		assert.Equalf(t, v, config.ResolveProxy(k, 80, []string{defaultProxy})[0], "proxy for ip %v?", k)
+		assert.Equalf(t, v, config.ResolveProxy(k, 80, []*Proxy{defaultProxy})[0], "proxy for ip %v?", k)
+	}
+}
+
+func TestProxyConfig_ResolveSocks5Proxy(t *testing.T) {
+	config := NewProxyConfig(strings.NewReader(data))
+	fakeHosts := map[string]string{
+		"12.12.12.12": "www.example2.io",
+		"10.1.2.3":    "www.example.net",
+		"13.12.12.12": "www.example.com",
+		"12.12.12.13": "www.example1.org",
+		"12.12.12.14": "www.example1.net",
+	}
+	findHostName = func(ip string) string {
+		return fakeHosts[ip]
+	}
+	var defaultProxy, _ = ParseProxy("proxy.example.com:8080")
+	results := map[string]*Proxy{
+		"172.168.1.1": proxy1,
+		"13.12.12.12": proxy1,
+		"12.12.12.12": proxy3,
+		"12.12.12.13": defaultProxy,
+		"12.12.12.14": proxy2,
+		"10.1.2.3":    proxy1,
+		"1.1.1.1":     defaultProxy,
+	}
+	for k, v := range results {
+		assert.Equalf(t, v, config.ResolveProxy(k, 80, []*Proxy{defaultProxy})[0], "proxy for ip %v?", k)
 	}
 }
