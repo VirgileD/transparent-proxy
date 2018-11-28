@@ -44,20 +44,20 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	log "github.com/zdannar/flogger"
 	"github.com/viki-org/dnscache"
+	log "github.com/zdannar/flogger"
+	"golang.org/x/net/proxy"
 	"io"
 	"net"
 	"os"
 	"os/signal"
+	"reflect"
 	"runtime"
 	"runtime/pprof"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
-	"reflect"
-	"golang.org/x/net/proxy"
 )
 
 const VERSION = "1.2"
@@ -219,7 +219,8 @@ func init() {
 func versionString() (v string) {
 	buildNum := strings.ToUpper(strconv.FormatInt(BUILDTIMESTAMP, 36))
 	buildDate := time.Unix(BUILDTIMESTAMP, 0).Format(time.UnixDate)
-	v = fmt.Sprintf("any_proxy %s (build %v, %v by %v@%v)", VERSION, buildNum, buildDate, BUILDUSER, BUILDHOST)
+	goVersion := runtime.Version()
+	v = fmt.Sprintf("any_proxy %s (build %v, %v by %v@%v) - %s", VERSION, buildNum, buildDate, BUILDUSER, BUILDHOST, goVersion)
 	return
 }
 
@@ -440,7 +441,7 @@ func checkProxies() {
 	}
 }
 
-func ioCopy(dst io.ReadWriteCloser, src io.ReadWriteCloser, dstname string, srcname string) {
+func ioCopy(dst net.Conn, src net.Conn, dstname string, srcname string) {
 	if dst == nil {
 		log.Debugf("copy(): oops, dst is nil!")
 		return
@@ -452,12 +453,12 @@ func ioCopy(dst io.ReadWriteCloser, src io.ReadWriteCloser, dstname string, srcn
 	copied, err := io.Copy(dst, src)
 	if err != nil {
 		if operr, ok := err.(*net.OpError); ok {
-			if innerOperr, innerOk := operr.Err.(*net.OpError); innerOk && innerOperr.Err.Error() == "use of closed network connection" {
-				log.Debugf("copy(): CLOSED %s->%s: Addr=%v, RemoteAddr=%v, Copied=%v", srcname, dstname, operr.Addr, innerOperr.Addr, copied)
+			if strings.Contains(operr.Err.Error(), "use of closed network connection") {
+				log.Debugf("copy(): CLOSED %s(%v)->%s(%v): Copied=%v", srcname, src.RemoteAddr(), dstname, dst.RemoteAddr(), copied)
 			} else {
-				log.Debugf("copy(): ERROR %s->%s: Op=%s, Net=%s, Addr=%v, Err=%v, Copied=%v", srcname, dstname, operr.Op, operr.Net, operr.Addr, operr.Err, copied)
+				log.Debugf("copy(): ERROR  %s(%v)->%s(%v): Op=%s, Net=%s, Err=%v, Copied=%v", srcname, src.RemoteAddr(), dstname, dst.RemoteAddr(), operr.Op, operr.Net, operr.Err, copied)
 			}
-			if operr.Op == "read" {
+			if strings.HasPrefix(operr.Op, "read") {
 				if srcname == "proxyserver" {
 					incrProxyServerReadErr()
 				}
@@ -465,7 +466,7 @@ func ioCopy(dst io.ReadWriteCloser, src io.ReadWriteCloser, dstname string, srcn
 					incrDirectServerReadErr()
 				}
 			}
-			if operr.Op == "write" {
+			if strings.HasPrefix(operr.Op, "write") {
 				if srcname == "proxyserver" {
 					incrProxyServerWriteErr()
 				}
@@ -474,10 +475,10 @@ func ioCopy(dst io.ReadWriteCloser, src io.ReadWriteCloser, dstname string, srcn
 				}
 			}
 		} else {
-			log.Debugf("copy(): ERROR %s->%s: Err=%v, Copied=%v", srcname, dstname, err, copied)
+			log.Debugf("copy(): ERROR  %s(%v)->%s(%v): Err=%v, Copied=%v", srcname, src.RemoteAddr(), dstname, dst.RemoteAddr(), err, copied)
 		}
 	} else {
-		log.Debugf("copy(): DONE %s->%s: Copied=%v", srcname, dstname, copied)
+		log.Debugf("copy(): DONE   %s(%v)->%s(%v): Copied=%v", srcname, src.RemoteAddr(), dstname, dst.RemoteAddr(), copied)
 	}
 	dst.Close()
 	src.Close()
@@ -571,9 +572,9 @@ func ipAndZoneToSockaddr(ip net.IP, zone string) syscall.Sockaddr {
 
 	case ip.To4() != nil:
 		var buf [4]byte
-		copy(buf[:], ip[12:16]) // last 4 bytes
+		ip4 := ip.To4()
+		copy(buf[:], ip4) // last 4 bytes
 		return &syscall.SockaddrInet4{Addr: buf}
-
 	}
 	panic("should be unreachable")
 }

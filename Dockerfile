@@ -18,6 +18,6 @@ RUN apk add iptables; rm -rf /var/cache/apk/*
 
 COPY --from=builder /go/src/go-any-proxy/docker/start-any-proxy.sh /go/bin/go-any-proxy /bin/
 
-ENV LISTEN_PORT=3129 HTTP_PROXY="" NO_PROXY="127.0.0.1/8" IPTABLE_MARK="5" PROXY_PORTS="80,443" VERBOSE=false DNS_PORT=0 PROXY_CONFIG_FILE=
+ENV LISTEN_PORT=3129 HTTP_PROXY="" NO_PROXY="" IPTABLE_MARK="5" PROXY_PORTS="80,443" VERBOSE=false DNS_PORT=0 PROXY_CONFIG_FILE=
 
 CMD ["/bin/start-any-proxy.sh"]
