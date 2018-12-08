@@ -80,6 +80,7 @@ var gReverseLookups int
 var gIpTableMark int
 var gDnsListenAddrPort string
 var gProxyConfigFile string
+var gProxyPorts string
 
 type cacheEntry struct {
 	hostname string
@@ -214,6 +215,7 @@ func init() {
 	flag.IntVar(&gIpTableMark, "k", 5, "Mark value set in proxy stream, default is 5.\n")
 	flag.StringVar(&gDnsListenAddrPort, "dns", "", "Address and port for DNS Proxy to intercept name resolving.\n")
 	flag.StringVar(&gProxyConfigFile, "pf", "", "Additional proxy configuration file for advanced proxy routing.\n")
+	flag.StringVar(&gProxyPorts, "ports", "", "Proxy Ports used for internal iptables. If not specified use external iptables utility to setup.\n")
 
 	dirFuncs := buildDirectors(gDirects)
 	director = getDirector(dirFuncs)
@@ -394,12 +396,50 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer listener.Close()
+
+	closer := new(sync.Once)
+	defer closer.Do(func() {
+		_ = listener.Close()
+	})
+
 	log.Infof("Listening for connections on %v\n", listener.Addr())
+
+	// start iptables if enabled
+	if gProxyPorts != "" {
+		ipTableHandler, err := InstallIPTables()
+		if err != nil {
+			panic(err)
+		}
+		log.Infof("Installed iptables for ports %v", gProxyPorts)
+
+		defer func() {
+			err := ipTableHandler.Uninstall()
+			log.Infof("Uninstalled iptables for ports %v", ipTableHandler.proxyPorts)
+			if err != nil {
+				log.Warningf("Got error during uninstall iptables: %v", err)
+			}
+		}()
+	}
+
+	// install stop handler
+	stopped := false
+	go func() {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+		_ = <-sigs
+		stopped = true
+		closer.Do(func() {
+			_ = listener.Close()
+		})
+	}()
 
 	for {
 		conn, err := listener.AcceptTCP()
 		if err != nil {
+			if stopped {
+				log.Infof("Stopping Listening")
+				break
+			}
 			log.Infof("Error accepting connection: %v\n", err)
 			incrAcceptErrors()
 			continue
