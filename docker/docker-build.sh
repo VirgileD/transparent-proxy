@@ -9,4 +9,4 @@ const BUILDUSER      = "root"
 const BUILDHOST      = "docker"
 EOF
 
-GOOS=linux go get
+go build ./...
