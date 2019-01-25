@@ -1,13 +1,13 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
+	"golang.org/x/net/proxy"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
-	"golang.org/x/net/proxy"
-	"net/url"
-	"encoding/base64"
 )
 
 type ProxyType string

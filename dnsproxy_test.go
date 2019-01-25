@@ -1,15 +1,15 @@
 package main
 
 import (
-	logger "github.com/zdannar/flogger"
+	"fmt"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
-	"testing"
-	"fmt"
+	logger "github.com/zdannar/flogger"
 	"math/rand"
+	"testing"
 )
 
-const remoteDns = "16.110.135.52:53"
+const remoteDns = "8.8.8.8:53"
 
 func init() {
 	if iptablesIntegration {

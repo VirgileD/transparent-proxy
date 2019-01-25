@@ -1,16 +1,16 @@
 package main
 
 import (
-	logger "github.com/zdannar/flogger"
-	"gopkg.in/yaml.v2"
 	"bufio"
 	"bytes"
-	"io"
 	"fmt"
-	"strings"
-	"unicode"
+	logger "github.com/zdannar/flogger"
+	"gopkg.in/yaml.v2"
+	"io"
 	"net"
 	"regexp"
+	"strings"
+	"unicode"
 )
 
 type ProxyRule struct {

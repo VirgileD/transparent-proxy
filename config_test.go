@@ -1,10 +1,10 @@
 package main
 
 import (
-	"testing"
-	"strings"
 	"github.com/stretchr/testify/assert"
 	"net"
+	"strings"
+	"testing"
 )
 
 var data = `

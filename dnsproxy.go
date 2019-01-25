@@ -1,18 +1,18 @@
 package main
 
 import (
-	logger "github.com/zdannar/flogger"
-	"github.com/miekg/dns"
-	"os"
 	"bufio"
-	"io"
-	"fmt"
 	"errors"
-	"strings"
+	"fmt"
+	"github.com/miekg/dns"
+	logger "github.com/zdannar/flogger"
+	"io"
 	"net"
+	"os"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
-	"strconv"
 )
 
 type dnsProxy struct {

@@ -1,11 +1,11 @@
 package main
 
 import (
-	"os/signal"
-	"syscall"
-	"runtime"
-	"os"
 	"log"
+	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
 )
 
 // Refer to https://stackoverflow.com/a/27398062
