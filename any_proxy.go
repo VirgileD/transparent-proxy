@@ -44,7 +44,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/viki-org/dnscache"
+	"github.com/vishvananda/netlink"
 	log "github.com/zdannar/flogger"
 	"golang.org/x/net/proxy"
 	"io"
@@ -54,6 +56,7 @@ import (
 	"reflect"
 	"runtime"
 	"runtime/pprof"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,6 +84,7 @@ var gIpTableMark int
 var gDnsListenAddrPort string
 var gProxyConfigFile string
 var gProxyPorts string
+var gDiscoverDirects bool
 
 type cacheEntry struct {
 	hostname string
@@ -216,9 +220,9 @@ func init() {
 	flag.StringVar(&gDnsListenAddrPort, "dns", "", "Address and port for DNS Proxy to intercept name resolving.\n")
 	flag.StringVar(&gProxyConfigFile, "pf", "", "Additional proxy configuration file for advanced proxy routing.\n")
 	flag.StringVar(&gProxyPorts, "ports", "", "Proxy Ports used for internal iptables. If not specified use external iptables utility to setup.\n")
+	flag.BoolVar(&gDiscoverDirects, "dd", false, "Discover additional IP addresses to go direct")
 
-	dirFuncs := buildDirectors(gDirects)
-	director = getDirector(dirFuncs)
+	director = getDirector(nil)
 }
 
 func versionString() (v string) {
@@ -229,11 +233,19 @@ func versionString() (v string) {
 	return
 }
 
-func buildDirectors(gDirects string) []directorFunc {
+func buildDirectors(directs string, discoverDirects bool) []directorFunc {
 	// Generates a list of directorFuncs that are have "cached" values within
 	// the scope of the functions.
 
-	directorCidrs := strings.Split(gDirects, ",")
+	if discoverDirects {
+		discoverDirects, err := autoDiscoverDirects()
+		if err != nil {
+			panic(fmt.Sprintf("Unable to discover additional IP addresses to go direct: %v", err))
+		}
+		directs = fmt.Sprintf("%s,%s", discoverDirects, directs)
+	}
+	directorCidrs := strings.Split(directs, ",")
+	log.Infof("Use director IP address: %v", directorCidrs)
 	directorFuncs := make([]directorFunc, len(directorCidrs))
 
 	for idx, directorCidr := range directorCidrs {
@@ -353,7 +365,7 @@ func main() {
 	setupStats()
 	setupStackDump()
 
-	dirFuncs := buildDirectors(gDirects)
+	dirFuncs := buildDirectors(gDirects, gDiscoverDirects)
 
 	if gProxyConfigFile != "" {
 		file, err := os.Open(gProxyConfigFile)
@@ -877,4 +889,25 @@ func itod(i uint) string {
 	}
 
 	return string(b[bp:])
+}
+
+func autoDiscoverDirects() (string, error) {
+	if routes, err := netlink.RouteList(nil, netlink.FAMILY_V4); err != nil {
+		return "", err
+	} else {
+		set := hashset.New()
+		// default private noProxy
+		set.Add("127.0.0.1/8", "192.168.0.1/16", "10.0.0.1/8", "172.16.0.0/12")
+		for _, route := range routes {
+			if route.Dst != nil && route.Src != nil {
+				set.Add(route.Dst.String())
+			}
+		}
+		var items []string
+		for _, k := range set.Values() {
+			items = append(items, fmt.Sprintf("%s", k))
+		}
+		sort.Strings(items)
+		return strings.Join(items, ","), nil
+	}
 }
