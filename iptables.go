@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/coreos/go-iptables/iptables"
 	"math/rand"
-	"net"
 	"strings"
 	"sync"
 )
@@ -21,7 +20,7 @@ type ipTableHandler struct {
 	uninstall      sync.Once
 }
 
-func InstallIPTables() (handler *ipTableHandler, err error) {
+func InstallIPTables(noProxyList, proxyPorts string, listenPort, mark int) (handler *ipTableHandler, err error) {
 	tables, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
 		return nil, err
@@ -35,17 +34,6 @@ func InstallIPTables() (handler *ipTableHandler, err error) {
 
 	//IPTABELE_PREROUTING_CHAIN=PROXY_PREROUTING_${_RANDOM}
 	preOutingChain := fmt.Sprintf("PROXY_PREROUTING_%d", random)
-
-	mark := gIpTableMark
-	var listenPort int
-	var lnaddr *net.TCPAddr
-	if lnaddr, err = net.ResolveTCPAddr("tcp", gListenAddrPort); err != nil {
-		return
-	} else {
-		listenPort = lnaddr.Port
-	}
-	noProxyList := gDirects
-	proxyPorts := gProxyPorts
 
 	//  iptables -t filter -I OUTPUT 1 -p tcp -m mark --mark ${IPTABLE_MARK} --dport ${LISTEN_PORT} -j REJECT
 	if err = tables.Insert("filter", "OUTPUT", 1,

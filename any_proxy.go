@@ -233,7 +233,7 @@ func versionString() (v string) {
 	return
 }
 
-func buildDirectors(directs string, discoverDirects bool) []directorFunc {
+func buildDirectors(directs string, discoverDirects bool) (string, []directorFunc) {
 	// Generates a list of directorFuncs that are have "cached" values within
 	// the scope of the functions.
 
@@ -273,7 +273,7 @@ func buildDirectors(directs string, discoverDirects bool) []directorFunc {
 		}
 
 	}
-	return directorFuncs
+	return directs, directorFuncs
 }
 
 func getDirector(directors []directorFunc) func(*net.IP) (bool, int) {
@@ -365,7 +365,7 @@ func main() {
 	setupStats()
 	setupStackDump()
 
-	dirFuncs := buildDirectors(gDirects, gDiscoverDirects)
+	directs, dirFuncs := buildDirectors(gDirects, gDiscoverDirects)
 
 	if gProxyConfigFile != "" {
 		file, err := os.Open(gProxyConfigFile)
@@ -418,7 +418,14 @@ func main() {
 
 	// start iptables if enabled
 	if gProxyPorts != "" {
-		ipTableHandler, err := InstallIPTables()
+		var listenPort int
+		var lnaddr *net.TCPAddr
+		if lnaddr, err = net.ResolveTCPAddr("tcp", gListenAddrPort); err != nil {
+			panic(err)
+		} else {
+			listenPort = lnaddr.Port
+		}
+		ipTableHandler, err := InstallIPTables(directs, gProxyPorts, listenPort, gIpTableMark)
 		if err != nil {
 			panic(err)
 		}
