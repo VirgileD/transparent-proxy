@@ -22,4 +22,9 @@ if [[ "${DNS_PORT}" -gt 0 ]];  then
   _DNS_LISTEN_PORT="-dns :${LISTEN_PORT}"
 fi
 
-exec /bin/go-any-proxy -l :${LISTEN_PORT} -ports ${PROXY_PORTS} -p ${HTTP_PROXY} -d ${NO_PROXY} -dd -v=${PROXY_VERBOSE} -f=/dev/stdout -k ${IPTABLE_MARK} ${_DNS_LISTEN_PORT} ${_PROXY_CONFIG}
+ _NO_PROXY=
+if [[ -n "${NO_PROXY}" ]]; then
+  _NO_PROXY="-d ${NO_PROXY}"
+fi
+
+exec /bin/go-any-proxy -l :${LISTEN_PORT} -ports ${PROXY_PORTS} -p ${HTTP_PROXY} ${_NO_PROXY} -dd -v=${PROXY_VERBOSE} -f=/dev/stdout -k ${IPTABLE_MARK} ${_DNS_LISTEN_PORT} ${_PROXY_CONFIG}

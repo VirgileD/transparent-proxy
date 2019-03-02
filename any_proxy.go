@@ -242,7 +242,11 @@ func buildDirectors(directs string, discoverDirects bool) (string, []directorFun
 		if err != nil {
 			panic(fmt.Sprintf("Unable to discover additional IP addresses to go direct: %v", err))
 		}
-		directs = fmt.Sprintf("%s,%s", discoverDirects, directs)
+		if directs != "" {
+			directs = fmt.Sprintf("%s,%s", discoverDirects, directs)
+		} else {
+			directs = discoverDirects
+		}
 	}
 	directorCidrs := strings.Split(directs, ",")
 	log.Infof("Use director IP address: %v", directorCidrs)
