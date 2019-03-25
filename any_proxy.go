@@ -908,7 +908,7 @@ func autoDiscoverDirects() (string, error) {
 	} else {
 		set := hashset.New()
 		// default private noProxy
-		set.Add("127.0.0.1/8", "192.168.0.1/16", "10.0.0.1/8", "172.16.0.0/12")
+		set.Add("127.0.0.1/8", "192.168.0.1/16", "172.16.0.0/12")
 		for _, route := range routes {
 			if route.Dst != nil && route.Src != nil {
 				set.Add(route.Dst.String())
