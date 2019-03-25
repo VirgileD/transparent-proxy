@@ -14,7 +14,7 @@ fi
 
 IPTABLE_SET=1
 
-NO_PROXY_LIST="127.0.0.1/8,192.168.0.1/16,10.0.0.1/8,172.16.0.0/12,${NO_PROXY},`ip route list | grep src | awk '{print $1}' | sed -e :a -e 'N;s/\n/,/;ta'`"
+NO_PROXY_LIST="127.0.0.1/8,192.168.0.1/16,172.16.0.0/12,${NO_PROXY},`ip route list | grep src | awk '{print $1}' | sed -e :a -e 'N;s/\n/,/;ta'`"
 NO_PROXY_LIST=`echo ${NO_PROXY_LIST}|sed 's/,,/,/g'`
 
 _PROXY_CONFIG=
