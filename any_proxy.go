@@ -56,6 +56,7 @@ import (
 	"runtime/pprof"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -85,28 +86,29 @@ type cacheEntry struct {
 	expires  time.Time
 }
 type reverseLookupCache struct {
-	hostnames map[string]*cacheEntry
+	hostnames sync.Map
 	keys      []string
 	next      int
 }
 
 func NewReverseLookupCache() *reverseLookupCache {
 	return &reverseLookupCache{
-		hostnames: make(map[string]*cacheEntry),
-		keys:      make([]string, 65536),
+		keys: make([]string, 65536),
 	}
 }
 func (c *reverseLookupCache) lookup(ipv4 string) string {
-	hit := c.hostnames[ipv4]
-	if hit != nil {
+	hit, ok := c.hostnames.Load(ipv4)
+	if !ok {
+		log.Debugf("lookup(): CACHE_MISS")
+		return ""
+	}
+	if hit, ok := hit.(*cacheEntry); ok {
 		if hit.expires.After(time.Now()) {
 			return hit.hostname
 		} else {
 			log.Debugf("lookup(): CACHE_EXPIRED")
-			delete(c.hostnames, ipv4)
+			c.hostnames.Delete(ipv4)
 		}
-	} else {
-		log.Debugf("lookup(): CACHE_MISS")
 	}
 	return ""
 }
@@ -116,18 +118,19 @@ func (c *reverseLookupCache) store(ipv4, hostname string) {
 }
 
 func (c *reverseLookupCache) storeTtl(ipv4, hostname string, ttl int) {
-	delete(c.hostnames, c.keys[c.next])
+	c.hostnames.Delete(c.keys[c.next])
 	c.keys[c.next] = ipv4
 	c.next = (c.next + 1) & 65535
-	c.hostnames[ipv4] = &cacheEntry{hostname: hostname, expires: time.Now().Add(time.Duration(ttl) * time.Second)}
+	c.hostnames.Store(ipv4, &cacheEntry{hostname: hostname, expires: time.Now().Add(time.Duration(ttl) * time.Second)})
 }
 
 func ListHostNames() map[string]string {
 	c := gReverseLookupCache
 	m := make(map[string]string)
-	for ipv4, entry := range c.hostnames {
-		m[entry.hostname] = ipv4
-	}
+	c.hostnames.Range(func(ipv4, entry interface{}) bool {
+		m[entry.(*cacheEntry).hostname] = ipv4.(string)
+		return true
+	})
 	return m
 }
 
