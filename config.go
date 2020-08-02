@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	logger "github.com/zdannar/flogger"
+	logger "github.com/feng-zh/go-any-proxy/internal/flogger"
 	"gopkg.in/yaml.v2"
 	"io"
 	"net"

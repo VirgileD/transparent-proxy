@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
-	logger "github.com/zdannar/flogger"
+	logger "github.com/feng-zh/go-any-proxy/internal/flogger"
 	"math/rand"
 	"testing"
 )

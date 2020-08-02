@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/miekg/dns"
-	logger "github.com/zdannar/flogger"
+	logger "github.com/feng-zh/go-any-proxy/internal/flogger"
 	"io"
 	"net"
 	"os"
