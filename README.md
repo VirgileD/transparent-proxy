@@ -41,6 +41,7 @@ The options are important for run docker:
 * Env "IPTABLE_MASK": This is optional value, and should be different with other mark value used in iptables. Default value is "5".
 * Env "PROXY_PORTS": This is optional value for ports that can be transparent to proxy. The default value is "80,443".
 * Env "DNS_PORT": This is optional value to start DNS proxy to help advanced filter by DNS. Default value is "0" (disable). Use "53" to enable it.
+* Env "USE_FQDN": This is optional value to enable reverse lookup destination IP (or from DNS proxy) and use hostname in CONNECT request to proxy. Default value is "false". Use "true" to enable it.
 * Env "PROXY_CONFIG_FILE": This is optional value to use advanced proxy routing configuration file. Default value is disabled.
 
 
