@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
+	logger "github.com/feng-zh/go-any-proxy/internal/flogger"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
-	logger "github.com/feng-zh/go-any-proxy/internal/flogger"
 	"math/rand"
 	"testing"
 )
