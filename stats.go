@@ -28,266 +28,266 @@
 // Sun Apr  7 21:04:34 MDT 2013
 //
 
-
 package main
 
 import (
-    "fmt"
-    log "github.com/feng-zh/go-any-proxy/internal/flogger"
-    "os"
-    "os/signal"
-    "runtime"
-    "sync"
-    "syscall"
-    "time"
+	"fmt"
+	"os"
+	"os/signal"
+	"runtime"
+	"sync"
+	"syscall"
+	"time"
+
+	log "github.com/feng-zh/go-any-proxy/internal/flogger"
 )
 
 var acceptErrors struct {
-    sync.Mutex
-    n uint64
+	sync.Mutex
+	n uint64
 }
 
 var acceptSuccesses struct {
-    sync.Mutex
-    n uint64
+	sync.Mutex
+	n uint64
 }
 
 var getOriginalDstErrors struct {
-    sync.Mutex
-    n uint64
+	sync.Mutex
+	n uint64
 }
 
 var directConnections struct {
-    sync.Mutex
-    n uint64
+	sync.Mutex
+	n uint64
 }
 
 var proxiedConnections struct {
-    sync.Mutex
-    n uint64
+	sync.Mutex
+	n uint64
 }
 
 var proxy200Responses struct {
-    sync.Mutex
-    n uint64
+	sync.Mutex
+	n uint64
 }
 
 var proxy300Responses struct {
-    sync.Mutex
-    n uint64
+	sync.Mutex
+	n uint64
 }
 
 var proxy400Responses struct {
-    sync.Mutex
-    n uint64
+	sync.Mutex
+	n uint64
 }
 
 var proxyNon200Responses struct {
-    sync.Mutex
-    n uint64
+	sync.Mutex
+	n uint64
 }
 
 var proxyNoConnectResponses struct {
-    sync.Mutex
-    n uint64
+	sync.Mutex
+	n uint64
 }
 
 var proxyServerReadErr struct {
-    sync.Mutex
-    n uint64
+	sync.Mutex
+	n uint64
 }
 
 var proxyServerWriteErr struct {
-    sync.Mutex
-    n uint64
+	sync.Mutex
+	n uint64
 }
 
 var directServerReadErr struct {
-    sync.Mutex
-    n uint64
+	sync.Mutex
+	n uint64
 }
 
 var directServerWriteErr struct {
-    sync.Mutex
-    n uint64
+	sync.Mutex
+	n uint64
 }
 
 func incrAcceptErrors() {
-    acceptErrors.Lock()
-    acceptErrors.n++
-    acceptErrors.Unlock()
+	acceptErrors.Lock()
+	acceptErrors.n++
+	acceptErrors.Unlock()
 }
 
-func numAcceptErrors() (uint64) {
-    return acceptErrors.n
+func numAcceptErrors() uint64 {
+	return acceptErrors.n
 }
 
 func incrAcceptSuccesses() {
-    acceptSuccesses.Lock()
-    acceptSuccesses.n++
-    acceptSuccesses.Unlock()
+	acceptSuccesses.Lock()
+	acceptSuccesses.n++
+	acceptSuccesses.Unlock()
 }
 
-func numAcceptSuccesses() (uint64) {
-    return acceptSuccesses.n
+func numAcceptSuccesses() uint64 {
+	return acceptSuccesses.n
 }
 
-func incrGetOriginalDstErrors() {
-    getOriginalDstErrors.Lock()
-    getOriginalDstErrors.n++
-    getOriginalDstErrors.Unlock()
-}
+// currently not used
+// func incrGetOriginalDstErrors() {
+// 	getOriginalDstErrors.Lock()
+// 	getOriginalDstErrors.n++
+// 	getOriginalDstErrors.Unlock()
+// }
 
-func numGetOriginalDstErrors() (uint64) {
-    return getOriginalDstErrors.n
+func numGetOriginalDstErrors() uint64 {
+	return getOriginalDstErrors.n
 }
 
 func incrDirectConnections() {
-    directConnections.Lock()
-    directConnections.n++
-    directConnections.Unlock()
+	directConnections.Lock()
+	directConnections.n++
+	directConnections.Unlock()
 }
 
-func numDirectConnections() (uint64) {
-    return directConnections.n
+func numDirectConnections() uint64 {
+	return directConnections.n
 }
 
 func incrProxiedConnections() {
-    proxiedConnections.Lock()
-    proxiedConnections.n++
-    proxiedConnections.Unlock()
+	proxiedConnections.Lock()
+	proxiedConnections.n++
+	proxiedConnections.Unlock()
 }
 
-func numProxiedConnections() (uint64) {
-    return proxiedConnections.n
+func numProxiedConnections() uint64 {
+	return proxiedConnections.n
 }
 
 func incrProxy200Responses() {
-    proxy200Responses.Lock()
-    proxy200Responses.n++
-    proxy200Responses.Unlock()
+	proxy200Responses.Lock()
+	proxy200Responses.n++
+	proxy200Responses.Unlock()
 }
 
-func numProxy200Responses() (uint64) {
-    return proxy200Responses.n
+func numProxy200Responses() uint64 {
+	return proxy200Responses.n
 }
 
 func incrProxy300Responses() {
-    proxy300Responses.Lock()
-    proxy300Responses.n++
-    proxy300Responses.Unlock()
+	proxy300Responses.Lock()
+	proxy300Responses.n++
+	proxy300Responses.Unlock()
 }
 
-func numProxy300Responses() (uint64) {
-    return proxy300Responses.n
-}
+// currently not used
+// func numProxy300Responses() uint64 {
+// 	return proxy300Responses.n
+// }
 
 func incrProxy400Responses() {
-    proxy400Responses.Lock()
-    proxy400Responses.n++
-    proxy400Responses.Unlock()
+	proxy400Responses.Lock()
+	proxy400Responses.n++
+	proxy400Responses.Unlock()
 }
 
-func numProxy400Responses() (uint64) {
-    return proxy400Responses.n
+func numProxy400Responses() uint64 {
+	return proxy400Responses.n
 }
 
 func incrProxyNon200Responses() {
-    proxyNon200Responses.Lock()
-    proxyNon200Responses.n++
-    proxyNon200Responses.Unlock()
+	proxyNon200Responses.Lock()
+	proxyNon200Responses.n++
+	proxyNon200Responses.Unlock()
 }
 
-func numProxyNon200Responses() (uint64) {
-    return proxyNon200Responses.n
+func numProxyNon200Responses() uint64 {
+	return proxyNon200Responses.n
 }
 
 func incrProxyNoConnectResponses() {
-    proxyNoConnectResponses.Lock()
-    proxyNoConnectResponses.n++
-    proxyNoConnectResponses.Unlock()
+	proxyNoConnectResponses.Lock()
+	proxyNoConnectResponses.n++
+	proxyNoConnectResponses.Unlock()
 }
 
-func numProxyNoConnectResponses() (uint64) {
-    return proxyNoConnectResponses.n
+func numProxyNoConnectResponses() uint64 {
+	return proxyNoConnectResponses.n
 }
 
 func incrProxyServerReadErr() {
-    proxyServerReadErr.Lock()
-    proxyServerReadErr.n++
-    proxyServerReadErr.Unlock()
+	proxyServerReadErr.Lock()
+	proxyServerReadErr.n++
+	proxyServerReadErr.Unlock()
 }
 
-func numProxyServerReadErr() (uint64) {
-    return proxyServerReadErr.n
+func numProxyServerReadErr() uint64 {
+	return proxyServerReadErr.n
 }
 
 func incrProxyServerWriteErr() {
-    proxyServerWriteErr.Lock()
-    proxyServerWriteErr.n++
-    proxyServerWriteErr.Unlock()
+	proxyServerWriteErr.Lock()
+	proxyServerWriteErr.n++
+	proxyServerWriteErr.Unlock()
 }
 
-func numProxyServerWriteErr() (uint64) {
-    return proxyServerWriteErr.n
+func numProxyServerWriteErr() uint64 {
+	return proxyServerWriteErr.n
 }
 
 func incrDirectServerReadErr() {
-    directServerReadErr.Lock()
-    directServerReadErr.n++
-    directServerReadErr.Unlock()
+	directServerReadErr.Lock()
+	directServerReadErr.n++
+	directServerReadErr.Unlock()
 }
 
-func numDirectServerReadErr() (uint64) {
-    return directServerReadErr.n
+func numDirectServerReadErr() uint64 {
+	return directServerReadErr.n
 }
 
 func incrDirectServerWriteErr() {
-    directServerWriteErr.Lock()
-    directServerWriteErr.n++
-    directServerWriteErr.Unlock()
+	directServerWriteErr.Lock()
+	directServerWriteErr.n++
+	directServerWriteErr.Unlock()
 }
 
-func numDirectServerWriteErr()(uint64) {
-    return directServerWriteErr.n
+func numDirectServerWriteErr() uint64 {
+	return directServerWriteErr.n
 }
 
 func setupStats() {
-    c := make(chan os.Signal, 1)
-    signal.Notify(c, syscall.SIGUSR1)
-    go func() {
-        for _ = range c {
-            f, err := os.Create(STATSFILE)
-            if err != nil {
-                log.Infof("ERR: Could not open stats file \"%s\": %v", STATSFILE, err)
-                continue
-            }
-            fmt.Fprintf(f, "%s\n\n", versionString())
-            fmt.Fprintf(f, "STATISTICS as of %v:\n", time.Now().Format(time.UnixDate))
-            fmt.Fprintf(f, "                                Go version: %v\n", runtime.Version())
-            fmt.Fprintf(f, "          Number of logical CPUs on system: %v\n", runtime.NumCPU())
-            fmt.Fprintf(f, "                                GOMAXPROCS: %v\n", runtime.GOMAXPROCS(-1))
-            fmt.Fprintf(f, "              Goroutines currently running: %v\n", runtime.NumGoroutine())
-            fmt.Fprintf(f, "     Number of cgo calls made by any_proxy: %v\n", runtime.NumCgoCall())
-            fmt.Fprintf(f, "\n")
-            fmt.Fprintf(f, "                          accept successes: %v\n", numAcceptSuccesses())
-            fmt.Fprintf(f, "                             accept errors: %v\n", numAcceptErrors())
-            fmt.Fprintf(f, "        getsockopt(SO_ORIGINAL_DST) errors: %v\n", numGetOriginalDstErrors())
-            fmt.Fprintf(f, "\n")
-            fmt.Fprintf(f, "                 connections sent directly: %v\n", numDirectConnections())
-            fmt.Fprintf(f, "             direct connection read errors: %v\n", numDirectServerReadErr())
-            fmt.Fprintf(f, "            direct connection write errors: %v\n", numDirectServerWriteErr())
-            fmt.Fprintf(f, "\n")
-            fmt.Fprintf(f, "        connections sent to upstream proxy: %v\n", numProxiedConnections())
-            fmt.Fprintf(f, "              proxy connection read errors: %v\n", numProxyServerReadErr())
-            fmt.Fprintf(f, "             proxy connection write errors: %v\n", numProxyServerWriteErr())
-            fmt.Fprintf(f, "           code 200 response from upstream: %v\n", numProxy200Responses())
-            fmt.Fprintf(f, "           code 400 response from upstream: %v\n", numProxy400Responses())
-            fmt.Fprintf(f, "other (non 200/400) response from upstream: %v\n", numProxyNon200Responses())
-            fmt.Fprintf(f, "      no response to CONNECT from upstream: %v\n", numProxyNoConnectResponses())
-            f.Close()
-        }
-    }()
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGUSR1)
+	go func() {
+		for range c {
+			f, err := os.Create(STATSFILE)
+			if err != nil {
+				log.Infof("ERR: Could not open stats file \"%s\": %v", STATSFILE, err)
+				continue
+			}
+			fmt.Fprintf(f, "%s\n\n", versionString())
+			fmt.Fprintf(f, "STATISTICS as of %v:\n", time.Now().Format(time.UnixDate))
+			fmt.Fprintf(f, "                                Go version: %v\n", runtime.Version())
+			fmt.Fprintf(f, "          Number of logical CPUs on system: %v\n", runtime.NumCPU())
+			fmt.Fprintf(f, "                                GOMAXPROCS: %v\n", runtime.GOMAXPROCS(-1))
+			fmt.Fprintf(f, "              Goroutines currently running: %v\n", runtime.NumGoroutine())
+			fmt.Fprintf(f, "     Number of cgo calls made by any_proxy: %v\n", runtime.NumCgoCall())
+			fmt.Fprintf(f, "\n")
+			fmt.Fprintf(f, "                          accept successes: %v\n", numAcceptSuccesses())
+			fmt.Fprintf(f, "                             accept errors: %v\n", numAcceptErrors())
+			fmt.Fprintf(f, "        getsockopt(SO_ORIGINAL_DST) errors: %v\n", numGetOriginalDstErrors())
+			fmt.Fprintf(f, "\n")
+			fmt.Fprintf(f, "                 connections sent directly: %v\n", numDirectConnections())
+			fmt.Fprintf(f, "             direct connection read errors: %v\n", numDirectServerReadErr())
+			fmt.Fprintf(f, "            direct connection write errors: %v\n", numDirectServerWriteErr())
+			fmt.Fprintf(f, "\n")
+			fmt.Fprintf(f, "        connections sent to upstream proxy: %v\n", numProxiedConnections())
+			fmt.Fprintf(f, "              proxy connection read errors: %v\n", numProxyServerReadErr())
+			fmt.Fprintf(f, "             proxy connection write errors: %v\n", numProxyServerWriteErr())
+			fmt.Fprintf(f, "           code 200 response from upstream: %v\n", numProxy200Responses())
+			fmt.Fprintf(f, "           code 400 response from upstream: %v\n", numProxy400Responses())
+			fmt.Fprintf(f, "other (non 200/400) response from upstream: %v\n", numProxyNon200Responses())
+			fmt.Fprintf(f, "      no response to CONNECT from upstream: %v\n", numProxyNoConnectResponses())
+			f.Close()
+		}
+	}()
 }
-
-

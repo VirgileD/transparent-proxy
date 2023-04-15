@@ -4,13 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	logger "github.com/feng-zh/go-any-proxy/internal/flogger"
-	"gopkg.in/yaml.v2"
 	"io"
 	"net"
 	"regexp"
 	"strings"
 	"unicode"
+
+	logger "github.com/feng-zh/go-any-proxy/internal/flogger"
+	"gopkg.in/yaml.v2"
 )
 
 type ProxyRule struct {
@@ -131,8 +132,7 @@ func ruleAsDirectorFunc(rule string) directorFunc {
 		// IP
 		directorIp := net.ParseIP(rule)
 		dfunc = func(ptestip *net.IP) bool {
-			var testIp net.IP
-			testIp = *ptestip
+			var testIp net.IP = *ptestip
 			return testIp.Equal(directorIp)
 		}
 	}

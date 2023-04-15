@@ -44,11 +44,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/emirpasic/gods/sets/hashset"
-	log "github.com/feng-zh/go-any-proxy/internal/flogger"
-	"github.com/viki-org/dnscache"
-	"github.com/vishvananda/netlink"
-	"golang.org/x/net/proxy"
 	"io"
 	"net"
 	"os"
@@ -62,6 +57,12 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/emirpasic/gods/sets/hashset"
+	log "github.com/feng-zh/go-any-proxy/internal/flogger"
+	"github.com/viki-org/dnscache"
+	"github.com/vishvananda/netlink"
+	"golang.org/x/net/proxy"
 )
 
 const VERSION = "1.2"
@@ -266,11 +267,9 @@ func buildDirectors(directs string, discoverDirects bool) (string, []directorFun
 			}
 			directorFuncs[idx] = dfunc
 		} else {
-			var directorIp net.IP
-			directorIp = net.ParseIP(directorCidr)
+			var directorIp net.IP = net.ParseIP(directorCidr)
 			dfunc = func(ptestip *net.IP) bool {
-				var testIp net.IP
-				testIp = *ptestip
+				var testIp net.IP = *ptestip
 				return testIp.Equal(directorIp)
 			}
 			directorFuncs[idx] = dfunc
@@ -449,7 +448,6 @@ func main() {
 	go func() {
 		sigs := make(chan os.Signal, 1)
 		signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
-		_ = <-sigs
 		stopped = true
 		closer.Do(func() {
 			_ = listener.Close()
@@ -480,7 +478,7 @@ func checkProxies() {
 		log.Errorf("Invalid proxy list: %s", err)
 		msg := "Parse proxy list failure. Exiting."
 		log.Infof("%s\n", msg)
-		fmt.Fprintf(os.Stderr, msg)
+		fmt.Fprint(os.Stderr, msg)
 		os.Exit(1)
 	}
 	// make sure proxies resolve and are listening on specified port, unless -s=1, then don't check for reachability
@@ -502,7 +500,7 @@ func checkProxies() {
 	if len(gProxyServers) == 0 {
 		msg := "None of the proxy servers specified are available. Exiting."
 		log.Infof("%s\n", msg)
-		fmt.Fprintf(os.Stderr, msg)
+		fmt.Fprint(os.Stderr, msg)
 		os.Exit(1)
 	}
 }
@@ -753,7 +751,6 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 	remoteAddr := clientConn.RemoteAddr()
 	if remoteAddr == nil {
 		log.Debugf("handleProxyConnect(): oops, clientConn.fd is nil!")
-		err = errors.New("ERR: clientConn.fd is nil")
 		return
 	}
 
@@ -804,7 +801,7 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 		}
 		connectString := fmt.Sprintf("CONNECT %s:%d HTTP/1.0%s\r\n%s\r\n", ipv4, port, authString, headerXFF)
 		log.Debugf("PROXY|%v->%v->%s:%d|Sending to proxy: %s\n", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port, strconv.Quote(connectString))
-		fmt.Fprintf(proxyConn, connectString)
+		fmt.Fprint(proxyConn, connectString)
 		status, err := bufio.NewReader(proxyConn).ReadString('\n')
 		log.Debugf("PROXY|%v->%v->%s:%d|Received from proxy: %s", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port, strconv.Quote(status))
 		if err != nil {
@@ -822,11 +819,11 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 		if strings.Contains(status, "301") || strings.Contains(status, "302") && gClientRedirects == 1 {
 			log.Debugf("PROXY|%v->%v->%s:%d|Status from proxy=%s (Redirect), relaying response to client", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port, strconv.Quote(status))
 			incrProxy300Responses()
-			fmt.Fprintf(clientConn, status)
+			fmt.Fprint(clientConn, status)
 			ioCopy(clientConn, proxyConn, "client", "proxyserver")
 			return
 		}
-		if strings.Contains(status, "200") == false {
+		if strings.Contains(status, "200") {
 			log.Infof("PROXY|%v->%v->%s:%d|ERR: Proxy response to CONNECT was: %s. Trying next proxy.\n", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port, strconv.Quote(status))
 			incrProxyNon200Responses()
 			continue
@@ -841,7 +838,7 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 		log.Warningf("handleProxyConnection(): oops, proxyConn is nil!")
 		return
 	}
-	if success == false {
+	if !success {
 		log.Infof("PROXY|%v->UNAVAILABLE->%s:%d|ERR: Tried all proxies, but could not establish connection. Giving up.\n", clientConn.RemoteAddr(), ipv4, port)
 		fmt.Fprint(clientConn, "HTTP/1.0 503 Service Unavailable\r\nServer: go-any-proxy\r\nX-AnyProxy-Error: ERR_NO_PROXIES\r\n\r\n")
 		clientConn.Close()

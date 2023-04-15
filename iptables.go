@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/coreos/go-iptables/iptables"
 	"math/rand"
 	"strings"
-	"sync"
+
+	"github.com/coreos/go-iptables/iptables"
 )
 
 type ipTableHandler struct {
@@ -17,7 +17,6 @@ type ipTableHandler struct {
 	proxyPorts     string
 	outputChain    string
 	preOutingChain string
-	uninstall      sync.Once
 }
 
 func InstallIPTables(noProxyList, proxyPorts string, listenPort, mark int) (handler *ipTableHandler, err error) {
@@ -37,7 +36,7 @@ func InstallIPTables(noProxyList, proxyPorts string, listenPort, mark int) (hand
 
 	//  iptables -t filter -I OUTPUT 1 -p tcp -m mark --mark ${IPTABLE_MARK} --dport ${LISTEN_PORT} -j REJECT
 	if err = tables.Insert("filter", "OUTPUT", 1,
-		args("-p tcp -m mark --mark %d --dport %d -j REJECT", mark, listenPort) ...); err != nil {
+		args("-p tcp -m mark --mark %d --dport %d -j REJECT", mark, listenPort)...); err != nil {
 		return
 	}
 
@@ -95,7 +94,7 @@ func InstallIPTables(noProxyList, proxyPorts string, listenPort, mark int) (hand
 
 	//  iptables -t filter -I INPUT 1 -p tcp -m mark --mark ${IPTABLE_MARK} --dport ${LISTEN_PORT} -m conntrack --ctstate NEW -j ACCEPT
 	if err = tables.Insert("filter", "INPUT", 1,
-		args("-p tcp -m mark --mark %d --dport %d -m conntrack --ctstate NEW -j ACCEPT", mark, listenPort) ...); err != nil {
+		args("-p tcp -m mark --mark %d --dport %d -m conntrack --ctstate NEW -j ACCEPT", mark, listenPort)...); err != nil {
 		return
 	}
 
