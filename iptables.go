@@ -3,9 +3,15 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"os"
+	"strconv"
 	"strings"
 
+	"net"
+
 	"github.com/coreos/go-iptables/iptables"
+	"github.com/gookit/config/v2"
+	log "github.com/sirupsen/logrus"
 )
 
 type ipTableHandler struct {
@@ -19,7 +25,32 @@ type ipTableHandler struct {
 	preOutingChain string
 }
 
-func InstallIPTables(noProxyList, proxyPorts string, listenPort, mark int) (handler *ipTableHandler, err error) {
+func LoadIPTables() {
+	var listenPort int
+
+	var lnaddr *net.TCPAddr
+	var err error
+	if lnaddr, err = net.ResolveTCPAddr("tcp", config.Default().String("listenEndpoint", "3129")); err != nil {
+		panic(err)
+	} else {
+		listenPort = lnaddr.Port
+	}
+	ipTableHandler, err := InstallIPTables(config.Default().String("ignorePorts", "80,443"), listenPort, config.Default().Int("ipTableMark", 5))
+	if err != nil {
+		panic(err)
+	}
+	log.Infof("Installed iptables (with ignored ports %v)", config.Default().String("ignorePorts", "80,443"))
+
+	defer func() {
+		err := ipTableHandler.Uninstall()
+		log.Infof("Uninstalled iptables for ports %v", ipTableHandler.proxyPorts)
+		if err != nil {
+			log.Warningf("Got error during uninstall iptables: %v", err)
+		}
+	}()
+}
+
+func InstallIPTables(proxyPorts string, listenPort, mark int) (handler *ipTableHandler, err error) {
 	tables, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
 		return nil, err
@@ -45,12 +76,6 @@ func InstallIPTables(noProxyList, proxyPorts string, listenPort, mark int) (hand
 		return
 	}
 
-	//  iptables -t nat -A ${IPTABELE_OUTPUT_CHAIN} -p tcp -j RETURN -d ${NO_PROXY_LIST}
-	if err = tables.Append("nat", outputChain,
-		args("-p tcp -j RETURN -d %s", noProxyList)...); err != nil {
-		return
-	}
-
 	//  iptables -t nat -A ${IPTABELE_OUTPUT_CHAIN} -p tcp -j REDIRECT --to-port ${LISTEN_PORT}
 	if err = tables.Append("nat", outputChain,
 		args("-p tcp -j REDIRECT --to-port %d", listenPort)...); err != nil {
@@ -65,12 +90,6 @@ func InstallIPTables(noProxyList, proxyPorts string, listenPort, mark int) (hand
 
 	//  iptables -t nat -N ${IPTABELE_PREROUTING_CHAIN}
 	if err = tables.NewChain("nat", preOutingChain); err != nil {
-		return
-	}
-
-	//  iptables -t nat -A ${IPTABELE_PREROUTING_CHAIN} -p tcp -j RETURN -d ${NO_PROXY_LIST}
-	if err = tables.Append("nat", preOutingChain,
-		args("-p tcp -j RETURN -d %s", noProxyList)...); err != nil {
 		return
 	}
 
@@ -100,8 +119,14 @@ func InstallIPTables(noProxyList, proxyPorts string, listenPort, mark int) (hand
 
 	var dnsPort int
 	//  if [ "${DNS_PORT}" -gt 0 ]; then
-	if gDnsListenAddrPort != "" {
-		dnsPort = 53
+	DnsLocalPort := config.Default().String("DnsLocalPort", "53")
+	if DnsLocalPort != "" {
+		dnsPort, err1 := strconv.Atoi(DnsLocalPort)
+		if err1 != nil {
+			fmt.Println("Error during  of dns port %s", DnsLocalPort)
+			os.Exit(3)
+		}
+
 		// iptables -t nat -A OUTPUT -p udp -m mark ! --mark ${IPTABLE_MARK} -m multiport --dports ${DNS_PORT} -j REDIRECT --to-port ${LISTEN_PORT}
 		if err = tables.Append("nat", "OUTPUT",
 			args("-p udp -m mark ! --mark %d -m multiport --dports %d -j REDIRECT --to-port %d", mark, dnsPort, listenPort)...); err != nil {
@@ -117,7 +142,6 @@ func InstallIPTables(noProxyList, proxyPorts string, listenPort, mark int) (hand
 		tables:         tables,
 		mark:           mark,
 		listenPort:     listenPort,
-		noProxyList:    noProxyList,
 		dnsPort:        dnsPort,
 		proxyPorts:     proxyPorts,
 		outputChain:    outputChain,

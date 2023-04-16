@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	logger "github.com/feng-zh/go-any-proxy/internal/flogger"
-	"github.com/miekg/dns"
-	"github.com/stretchr/testify/assert"
 	"math/rand"
 	"testing"
+
+	"github.com/miekg/dns"
+	logger "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 )
 
 const remoteDns = "8.8.8.8:53"

@@ -2,6 +2,7 @@
 // This file will be overwrtitten when building docker image
 package main
 
+const VERSION = "test"
 const BUILDTIMESTAMP = 2
 const BUILDUSER = "root"
 const BUILDHOST = "docker"

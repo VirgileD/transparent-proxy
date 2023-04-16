@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	logger "github.com/feng-zh/go-any-proxy/internal/flogger"
-	"github.com/miekg/dns"
 	"io"
 	"net"
 	"os"
@@ -13,12 +11,26 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/gookit/config/v2"
+	"github.com/miekg/dns"
+	log "github.com/sirupsen/logrus"
 )
 
 type dnsProxy struct {
 	addr       string
 	remoteAddr string
 	dnsServer  *dns.Server
+}
+
+func LoadDnsServer() {
+	DnsLocalPort := config.Default().String("DnsLocalPort", "53")
+	dp := NewDnsProxy(DnsLocalPort, "")
+	if err := dp.ListenAndServe(false); err != nil {
+		log.Warningf("Error open dns proxy on %v: %v", DnsLocalPort, err)
+	}
+	defer dp.Close()
+	log.Infof("Listening DNS proxy on %v", DnsLocalPort)
 }
 
 var iptablesIntegration = os.Getuid() == 0
@@ -34,7 +46,7 @@ func NewDnsProxy(addr, remoteAddr string) *dnsProxy {
 
 func (proxy *dnsProxy) newDnsHandler() dns.Handler {
 	return dns.HandlerFunc(func(w dns.ResponseWriter, m *dns.Msg) {
-		logger.Debugf("Got question %v", m.Question)
+		log.Debugf("Got question %v", m.Question)
 		var qName string
 		for _, qm := range m.Question {
 			qName = qm.Name
@@ -44,11 +56,11 @@ func (proxy *dnsProxy) newDnsHandler() dns.Handler {
 			var err error
 			if remoteAddr, err = getOriginalUdpDst(w); err != nil {
 				if proxy.remoteAddr == "" {
-					logger.Errorf("Abort DNS resolving for no origin dist: %v", err)
+					log.Errorf("Abort DNS resolving for no origin dist: %v", err)
 					dns.HandleFailed(w, m)
 					return
 				} else {
-					logger.Warningf("Cannot get origin dist, use default %v as remote address: %v", proxy.remoteAddr, err)
+					log.Warningf("Cannot get origin dist, use default %v as remote address: %v", proxy.remoteAddr, err)
 				}
 				remoteAddr = proxy.remoteAddr
 			}
@@ -56,13 +68,13 @@ func (proxy *dnsProxy) newDnsHandler() dns.Handler {
 			remoteAddr = proxy.remoteAddr
 		}
 		if r, err := doDnsExchange(m, remoteAddr); err != nil {
-			logger.Warningf("failed query remote dns %q: %v", remoteAddr, err)
+			log.Warningf("failed query remote dns %q: %v", remoteAddr, err)
 			dns.HandleFailed(w, m)
 		} else {
 			if r.Rcode != dns.RcodeSuccess {
-				logger.Debugf("failed query %v: status=%v, id=%v", m.Question, dns.RcodeToString[r.Rcode], r.Id)
+				log.Debugf("failed query %v: status=%v, id=%v", m.Question, dns.RcodeToString[r.Rcode], r.Id)
 			} else {
-				logger.Debugf("Get reply for query %v", m.Question)
+				log.Debugf("Get reply for query %v", m.Question)
 			}
 			for _, am := range r.Answer {
 				h := am.Header()
@@ -74,8 +86,8 @@ func (proxy *dnsProxy) newDnsHandler() dns.Handler {
 					ip = ""
 				}
 				if h.Rrtype == dns.TypeA && h.Class == dns.ClassINET && qName != "" && ip != "" {
-					logger.Debugf("Store ip %v for hostname %v with ttl %v+300", ip, qName, int(h.Ttl))
-					gReverseLookupCache.storeTtl(ip, qName, int(h.Ttl+300))
+					log.Debugf("Store ip %v for hostname %v with ttl %v+300", ip, qName, int(h.Ttl))
+					reverseLookupCache.storeTtl(ip, qName, int(h.Ttl+300))
 				}
 			}
 			// make sure compress before write msg to keep len <= 512 (DNS UDP size limit)
@@ -90,7 +102,7 @@ func doDnsExchange(msg *dns.Msg, remoteAddr string) (*dns.Msg, error) {
 		return nil, err
 	}
 	localAddr := conn.LocalAddr().String()
-	logger.Debugf("Start DNS msg from %v to %v", localAddr, remoteAddr)
+	log.Debugf("Start DNS msg from %v to %v", localAddr, remoteAddr)
 	msgSize := uint16(0)
 	opt := msg.IsEdns0()
 	if opt != nil && opt.UDPSize() >= dns.MinMsgSize {
@@ -106,6 +118,23 @@ func doDnsExchange(msg *dns.Msg, remoteAddr string) (*dns.Msg, error) {
 	return co.ReadMsg()
 }
 
+// ipAndZoneToSockaddr converts a net.IP (with optional IPv6 Zone) to a syscall.Sockaddr
+// Returns nil if conversion fails.
+func ipAndZoneToSockaddr(ip net.IP, zone string) syscall.Sockaddr {
+	switch {
+	case len(ip) < net.IPv4len: // default to IPv4
+		buf := [4]byte{0, 0, 0, 0}
+		return &syscall.SockaddrInet4{Addr: buf}
+
+	case ip.To4() != nil:
+		var buf [4]byte
+		ip4 := ip.To4()
+		copy(buf[:], ip4) // last 4 bytes
+		return &syscall.SockaddrInet4{Addr: buf}
+	}
+	panic("should be unreachable")
+}
+
 const dnsTimeout = 5 * time.Second
 
 func dialUdp(remoteAddr string) (*net.UDPConn, error) {
@@ -114,23 +143,23 @@ func dialUdp(remoteAddr string) (*net.UDPConn, error) {
 		return nil, err
 	}
 	if iptablesIntegration {
-		err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, gIpTableMark)
+		err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, config.Default().Int("ipTableMark", 5))
 		if err != nil {
-			logger.Debugf("Cannot set sockopt with mark %v: %v", gIpTableMark, err)
+			log.Debugf("Cannot set sockopt with mark %v: %v", config.Default().Int("ipTableMark", 5), err)
 			syscall.Close(fd)
 			return nil, err
 		}
 	}
 	ua, err := net.ResolveUDPAddr("udp", remoteAddr)
 	if err != nil {
-		logger.Errorf("Cannot resolve UDP addr %v: %v", remoteAddr, err)
+		log.Errorf("Cannot resolve UDP addr %v: %v", remoteAddr, err)
 		syscall.Close(fd)
 		return nil, err
 	}
 	sa := udpAddrToSockaddr(ua)
 	err = syscall.Connect(fd, sa)
 	if err != nil {
-		logger.Errorf("Cannot Connect UDP: %v", err)
+		log.Errorf("Cannot Connect UDP: %v", err)
 		syscall.Close(fd)
 		return nil, err
 	}
@@ -138,10 +167,10 @@ func dialUdp(remoteAddr string) (*net.UDPConn, error) {
 	conn, err := net.FileConn(file)
 	// duplicate file created need to close
 	if closeErr := file.Close(); closeErr != nil {
-		logger.Errorf("Cannot close file %v: %v", fd, closeErr)
+		log.Errorf("Cannot close file %v: %v", fd, closeErr)
 	}
 	if err != nil {
-		logger.Errorf("Cannot create connection by fd %v: %v", fd, err)
+		log.Errorf("Cannot create connection by fd %v: %v", fd, err)
 		return nil, err
 	}
 	if udpConn, ok := conn.(*net.UDPConn); ok {
@@ -170,10 +199,10 @@ func getOriginalUdpDst(w dns.ResponseWriter) (string, error) {
 	track.proxyPort = strconv.Itoa((w.LocalAddr()).(*net.UDPAddr).Port)
 	if err := getMatchedOriginalUdpDst(track); err != nil {
 		msg := fmt.Sprintf("cannot get matched original udp dsk from track %v: %v", track, err)
-		logger.Debugf(msg)
+		log.Debugf(msg)
 		return "", errors.New(msg)
 	}
-	logger.Debugf("Get Original Udp Dst: %v", track.l_dst)
+	log.Debugf("Get Original Udp Dst: %v", track.l_dst)
 	return track.l_dst, nil
 }
 
@@ -181,13 +210,13 @@ func (proxy *dnsProxy) ListenAndServe(block bool) error {
 	if !block {
 		c := make(chan error)
 		proxy.dnsServer.NotifyStartedFunc = func() {
-			logger.Debugf("dns server is started at %v.", proxy.dnsServer.PacketConn.LocalAddr())
+			log.Debugf("dns server is started at %v.", proxy.dnsServer.PacketConn.LocalAddr())
 			c <- nil
 			close(c)
 		}
 		go func() {
 			if err := proxy.dnsServer.ListenAndServe(); err != nil {
-				logger.Warningf("dns server start error: %v", err)
+				log.Warningf("dns server start error: %v", err)
 				c <- err
 				close(c)
 			}
@@ -196,18 +225,18 @@ func (proxy *dnsProxy) ListenAndServe(block bool) error {
 		if !ok {
 			return nil
 		}
-		logger.Debug("finish dns server listen")
+		log.Debug("finish dns server listen")
 		return err
 	} else {
 		proxy.dnsServer.NotifyStartedFunc = func() {
-			logger.Debugf("dns server is started at %v.", proxy.addr)
+			log.Debugf("dns server is started at %v.", proxy.addr)
 		}
 		return proxy.dnsServer.ListenAndServe()
 	}
 }
 
 func (proxy *dnsProxy) Close() error {
-	logger.Debug("Close dns server")
+	log.Debug("Close dns server")
 	return proxy.dnsServer.Shutdown()
 }
 
@@ -215,9 +244,9 @@ func getMatchedOriginalUdpDst(ut *udpTrack) error {
 	f, err := os.Open("/proc/self/net/nf_conntrack")
 	if err != nil {
 		if os.IsPermission(err) {
-			logger.Debugf("Cannot open file due to permission, use 'root' to get original destination: %v", err)
+			log.Debugf("Cannot open file due to permission, use 'root' to get original destination: %v", err)
 		} else {
-			logger.Errorf("Cannot open file: %v", err)
+			log.Errorf("Cannot open file: %v", err)
 		}
 		return err
 	}
@@ -231,12 +260,12 @@ func getMatchedOriginalUdpDst(ut *udpTrack) error {
 			lines = append(lines, line)
 			track = parseConnTrackLine(line)
 			if track != nil && track.matches(ut) {
-				logger.Debug(line)
+				log.Debug(line)
 				ut.l_dst = track.l_dst
 				return nil
 			}
 			for _, l := range lines {
-				logger.Debugf("/proc/self/net/nf_conntrack>> %v", l)
+				log.Debugf("/proc/self/net/nf_conntrack>> %v", l)
 			}
 			return errors.New("no original dst found from nf_conntrack")
 		} else if err != nil {
@@ -295,7 +324,7 @@ func parseConnTrackLine(line string) *udpTrack {
 			}
 		}
 	}
-	// logger.Debugf("Parse line %q to %q", line, track)
+	// log.Debugf("Parse line %q to %q", line, track)
 	return track
 }
 

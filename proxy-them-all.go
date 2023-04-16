@@ -40,31 +40,122 @@
 package main
 
 import (
-	"bufio"
-	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/signal"
-	"reflect"
 	"runtime"
-	"runtime/pprof"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/emirpasic/gods/sets/hashset"
-	log "github.com/feng-zh/go-any-proxy/internal/flogger"
-	"github.com/viki-org/dnscache"
-	"github.com/vishvananda/netlink"
-	"golang.org/x/net/proxy"
+	"github.com/gookit/config/v2"
+	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 )
 
+func versionString() string {
+	buildNum := strings.ToUpper(strconv.FormatInt(BUILDTIMESTAMP, 36))
+	buildDate := time.Unix(BUILDTIMESTAMP, 0).Format(time.UnixDate)
+	goVersion := runtime.Version()
+	return fmt.Sprintf("proxy-them-all %s (build %v, %v by %v@%v) - %s", VERSION, buildNum, buildDate, BUILDUSER, BUILDHOST, goVersion)
+}
+
+var loglevels = map[string]logrus.Level{"panic": logrus.PanicLevel, "fatal": logrus.FatalLevel, "error": logrus.ErrorLevel,
+	"warning": logrus.WarnLevel, "info": logrus.InfoLevel, "debug": logrus.DebugLevel, "trace": logrus.TraceLevel}
+
+func setupLogging() {
+	log.SetOutput(os.Stdout)
+	log.SetLevel(loglevels[config.Default().String("loglevel", "info")])
+}
+
+var configFile string
+
+func init() {
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stdout, "%s\n\n", versionString())
+		fmt.Fprintf(os.Stdout, "usage: %s [-c configFile]\n", os.Args[0])
+		fmt.Fprintf(os.Stdout, "       Proxies any tcp port transparently using Linux netfilter\n\n")
+		fmt.Fprintf(os.Stdout, "Optional\n")
+		fmt.Fprintf(os.Stdout, "  -c configFile absolute path to the config file, default to /etc/proxy-them-all/config.json \n")
+	}
+	flag.StringVar(&configFile, "c", "", "configuration file, default to /etc/proxy-them-all/config.json.\n")
+}
+
+var stopped = false
+
+func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU() / 2)
+
+	flag.Parse()
+	if configFile == "" {
+		configFile = "/etc/proxy-them-all/config.json"
+	}
+	LoadConfig(configFile)
+
+	setupLogging()
+	setupProfiling()
+	setupStats()
+	setupStackDump()
+	LoadDnsServer()
+	LoadReverseLookupCache()
+	LoadRules()
+
+	listener, closer := StartListening()
+
+	LoadIPTables()
+
+	// stop handler
+	go func() {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+		stopped = true
+		closer.Do(func() {
+			_ = listener.Close()
+		})
+	}()
+
+	for {
+		conn, err := listener.AcceptTCP()
+		if err != nil {
+			if stopped {
+				log.Infof("Stopping Listening")
+				break
+			}
+			log.Infof("Error accepting connection: %v\n", err)
+			incrAcceptErrors()
+			continue
+		}
+		incrAcceptSuccesses()
+		log.Debugf("main(): Get new connection:%+v\n", conn.RemoteAddr())
+		go handleConnection(conn)
+	}
+}
+
+func StartListening() (*net.TCPListener, *sync.Once) {
+	lnaddr, err := net.ResolveTCPAddr("tcp", config.Default().String("listeningEndpoint", "127.0.0.1:3129"))
+	if err != nil {
+		panic(err)
+	}
+
+	listener, err := net.ListenTCP("tcp", lnaddr)
+	if err != nil {
+		panic(err)
+	}
+
+	closer := new(sync.Once)
+	defer closer.Do(func() {
+		_ = listener.Close()
+	})
+
+	log.Infof("Listening for connections on %v\n", listener.Addr())
+	return listener, closer
+}
+
+/*
 const VERSION = "1.2"
 const SO_ORIGINAL_DST = 80
 const DEFAULTLOG = "/var/log/any_proxy.log"
@@ -87,65 +178,7 @@ var gProxyConfigFile string
 var gProxyPorts string
 var gDiscoverDirects bool
 
-type cacheEntry struct {
-	hostname string
-	expires  time.Time
-}
-type reverseLookupCache struct {
-	hostnames sync.Map
-	keys      []string
-	next      int
-}
 
-func NewReverseLookupCache() *reverseLookupCache {
-	return &reverseLookupCache{
-		keys: make([]string, 65536),
-	}
-}
-func (c *reverseLookupCache) lookup(ipv4 string) string {
-	hit, ok := c.hostnames.Load(ipv4)
-	if !ok {
-		log.Debugf("lookup(): CACHE_MISS")
-		return ""
-	}
-	if hit, ok := hit.(*cacheEntry); ok {
-		if hit.expires.After(time.Now()) {
-			return hit.hostname
-		} else {
-			log.Debugf("lookup(): CACHE_EXPIRED")
-			c.hostnames.Delete(ipv4)
-		}
-	}
-	return ""
-}
-
-func (c *reverseLookupCache) store(ipv4, hostname string) {
-	c.storeTtl(ipv4, hostname, int(time.Hour/time.Second))
-}
-
-func (c *reverseLookupCache) storeTtl(ipv4, hostname string, ttl int) {
-	c.hostnames.Delete(c.keys[c.next])
-	c.keys[c.next] = ipv4
-	c.next = (c.next + 1) & 65535
-	c.hostnames.Store(ipv4, &cacheEntry{hostname: hostname, expires: time.Now().Add(time.Duration(ttl) * time.Second)})
-}
-
-func ListHostNames() map[string]string {
-	c := gReverseLookupCache
-	m := make(map[string]string)
-	c.hostnames.Range(func(ipv4, entry interface{}) bool {
-		m[entry.(*cacheEntry).hostname] = ipv4.(string)
-		return true
-	})
-	return m
-}
-
-func GetHostName(ip string) string {
-	hostname := gReverseLookupCache.lookup(ip)
-	return hostname
-}
-
-var gReverseLookupCache = NewReverseLookupCache()
 
 type directorFunc func(*net.IP) bool
 
@@ -300,60 +333,7 @@ func getDirector(directors []directorFunc) func(*net.IP) (bool, int) {
 	return dFunc
 }
 
-func setupProfiling() {
-	// Make sure we have enough time to write profile's to disk, even if user presses Ctrl-C
-	if gMemProfile == "" || gCpuProfile == "" {
-		return
-	}
 
-	var profilef *os.File
-	var err error
-	if gMemProfile != "" {
-		profilef, err = os.Create(gMemProfile)
-		if err != nil {
-			panic(err)
-		}
-	}
-
-	if gCpuProfile != "" {
-		f, err := os.Create(gCpuProfile)
-		if err != nil {
-			panic(err)
-		}
-		pprof.StartCPUProfile(f)
-	}
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	go func() {
-		for range c {
-			if gCpuProfile != "" {
-				pprof.StopCPUProfile()
-			}
-			if gMemProfile != "" {
-				pprof.WriteHeapProfile(profilef)
-				profilef.Close()
-			}
-			time.Sleep(5000 * time.Millisecond)
-			os.Exit(0)
-		}
-	}()
-}
-
-func setupLogging() {
-	if gLogfile == "" {
-		gLogfile = DEFAULTLOG
-	}
-
-	log.SetLevel(log.INFO)
-	if gVerbosity != 0 {
-		log.SetLevel(log.DEBUG)
-	}
-
-	if err := log.OpenFile(gLogfile, log.FLOG_APPEND, 0644); err != nil {
-		log.Fatalf("Unable to open log file : %s", err)
-	}
-}
 
 func main() {
 	flag.Parse()
@@ -505,48 +485,7 @@ func checkProxies() {
 	}
 }
 
-func ioCopy(dst net.Conn, src net.Conn, dstname string, srcname string) {
-	if dst == nil {
-		log.Debugf("copy(): oops, dst is nil!")
-		return
-	}
-	if src == nil {
-		log.Debugf("copy(): oops, src is nil!")
-		return
-	}
-	copied, err := io.Copy(dst, src)
-	if err != nil {
-		if operr, ok := err.(*net.OpError); ok {
-			if strings.Contains(operr.Err.Error(), "use of closed network connection") {
-				log.Debugf("copy(): CLOSED %s(%v)->%s(%v): Copied=%v", srcname, src.RemoteAddr(), dstname, dst.RemoteAddr(), copied)
-			} else {
-				log.Debugf("copy(): ERROR  %s(%v)->%s(%v): Op=%s, Net=%s, Err=%v, Copied=%v", srcname, src.RemoteAddr(), dstname, dst.RemoteAddr(), operr.Op, operr.Net, operr.Err, copied)
-			}
-			if strings.HasPrefix(operr.Op, "read") {
-				if srcname == "proxyserver" {
-					incrProxyServerReadErr()
-				}
-				if srcname == "directserver" {
-					incrDirectServerReadErr()
-				}
-			}
-			if strings.HasPrefix(operr.Op, "write") {
-				if srcname == "proxyserver" {
-					incrProxyServerWriteErr()
-				}
-				if srcname == "directserver" {
-					incrDirectServerWriteErr()
-				}
-			}
-		} else {
-			log.Debugf("copy(): ERROR  %s(%v)->%s(%v): Err=%v, Copied=%v", srcname, src.RemoteAddr(), dstname, dst.RemoteAddr(), err, copied)
-		}
-	} else {
-		log.Debugf("copy(): DONE   %s(%v)->%s(%v): Copied=%v", srcname, src.RemoteAddr(), dstname, dst.RemoteAddr(), copied)
-	}
-	dst.Close()
-	src.Close()
-}
+
 
 func getOriginalDst(clientConn *net.TCPConn) (ipv4 string, port uint16, newTCPConn *net.TCPConn, err error) {
 	if clientConn == nil {
@@ -641,62 +580,6 @@ func ipAndZoneToSockaddr(ip net.IP, zone string) syscall.Sockaddr {
 		return &syscall.SockaddrInet4{Addr: buf}
 	}
 	panic("should be unreachable")
-}
-
-var resolver = dnscache.New(time.Minute * 30)
-
-func dial(spec string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(spec)
-	if err != nil {
-		log.Infof("dial(): ERR: could not extract host and port from spec %v: %v", spec, err)
-		return nil, err
-	}
-	remoteIP := net.ParseIP(host)
-	if remoteIP == nil {
-		remoteIP, err = resolver.FetchOne(host)
-		if err != nil {
-			log.Infof("dial(): ERR: could not resolve %v: %v", host, err)
-			return nil, err
-		}
-	}
-	portInt, err := strconv.Atoi(port)
-	if err != nil {
-		log.Infof("dial(): ERR: could not convert network port from string \"%s\" to integer: %v", port, err)
-		return nil, err
-	}
-	remoteAddrAndPort := &net.TCPAddr{IP: remoteIP, Port: portInt}
-	sa := netAddrToSockaddr(remoteAddrAndPort)
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
-	if err != nil {
-		log.Infof("dial(): ERR: could not create socket: %v", err)
-		return nil, err
-	}
-	err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, gIpTableMark)
-	if err != nil {
-		log.Debugf("dial(): ERR: could not set sockopt with mark %v: %v", gIpTableMark, err)
-		syscall.Close(fd)
-		return nil, err
-	}
-	err = syscall.Connect(fd, sa)
-	if err != nil {
-		log.Infof("dial(): ERR: could not connect to %v:%v: %v", remoteIP, portInt, err)
-		syscall.Close(fd)
-		return nil, err
-	}
-	file := os.NewFile(uintptr(fd), "")
-	conn, err := net.FileConn(file)
-	// duplicate file created need to close
-	if closeErr := file.Close(); closeErr != nil {
-		log.Errorf("dial(): ERR: cannot close file %v: %v", fd, closeErr)
-	}
-	if err != nil {
-		log.Infof("dial(): ERR: could not create connection with fd %v: %v", fd, err)
-		return nil, err
-	}
-	if tcpConn, ok := conn.(*net.TCPConn); ok {
-		return tcpConn, err
-	}
-	return nil, errors.New("invalid connection type")
 }
 
 func handleDirectConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
@@ -849,56 +732,6 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 	go ioCopy(proxyConn, clientConn, "proxyserver", "client")
 }
 
-func handleConnection(clientConn *net.TCPConn) {
-	if clientConn == nil {
-		log.Debugf("handleConnection(): oops, clientConn is nil")
-		return
-	}
-
-	// test if the underlying fd is nil
-	remoteAddr := clientConn.RemoteAddr()
-	if remoteAddr == nil {
-		log.Debugf("handleConnection(): oops, clientConn.fd is nil!")
-		return
-	}
-
-	ipv4, port, clientConn, err := getOriginalDst(clientConn)
-	if err != nil {
-		log.Infof("handleConnection(): can not handle this connection, error occurred in getting original destination ip address/port: %+v\n", err)
-		return
-	}
-	// If no upstream proxies were provided on the command line, assume all traffic should be sent directly
-	if gProxyServerSpec == "" {
-		handleDirectConnection(clientConn, ipv4, port)
-		return
-	}
-	// Evaluate for direct connection
-	ip := net.ParseIP(ipv4)
-	if ok, _ := director(&ip); ok {
-		handleDirectConnection(clientConn, ipv4, port)
-		return
-	}
-	handleProxyConnection(clientConn, ipv4, port)
-}
-
-// from pkg/net/parse.go
-// Convert i to decimal string.
-func itod(i uint) string {
-	if i == 0 {
-		return "0"
-	}
-
-	// Assemble decimal in reverse order.
-	var b [32]byte
-	bp := len(b)
-	for ; i > 0; i /= 10 {
-		bp--
-		b[bp] = byte(i%10) + '0'
-	}
-
-	return string(b[bp:])
-}
-
 func autoDiscoverDirects() (string, error) {
 	if routes, err := netlink.RouteList(nil, netlink.FAMILY_V4); err != nil {
 		return "", err
@@ -919,3 +752,4 @@ func autoDiscoverDirects() (string, error) {
 		return strings.Join(items, ","), nil
 	}
 }
+*/

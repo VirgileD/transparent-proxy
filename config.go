@@ -1,76 +1,62 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
-	"io"
-	"net"
-	"regexp"
-	"strings"
-	"unicode"
 
-	logger "github.com/feng-zh/go-any-proxy/internal/flogger"
-	"gopkg.in/yaml.v2"
+	"github.com/gookit/config/v2"
+	"github.com/gookit/config/v2/json"
 )
 
-type ProxyRule struct {
-	Proxy string    `yaml:"proxy"`
-	Type  ProxyType `yaml:"type"`
-	Rules []string  `yaml:"rules"`
-}
+func LoadConfig(f string) {
+	config.AddDriver(json.Driver)
 
-type proxyConfig struct {
-	proxyRules []ProxyRule
-}
-
-func NewProxyConfig(r io.Reader) *proxyConfig {
-	config := new(proxyConfig)
-	var err error
-	if config.proxyRules, err = unmarshalProxyRules(r); err != nil {
-		panic(fmt.Sprintf("error loading config: %v", err))
+	err := config.LoadFiles(f)
+	if err != nil {
+		panic(err)
 	}
-	return config
+
+	fmt.Printf("config data: \n %#v\n", config.Data())
 }
 
-func unmarshalProxyRules(r io.Reader) ([]ProxyRule, error) {
-	scanner := bufio.NewScanner(r)
-	sep := []byte("---\n")
-	scanner.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
-		if atEOF && len(data) == 0 {
-			return 0, nil, nil
-		}
-		sepIdx := bytes.Index(data, sep)
-		if sepIdx >= 0 {
-			if len(bytes.TrimSpace(data[:sepIdx])) == 0 {
-				return sepIdx + len(sep), nil, nil
-			} else {
-				return sepIdx + len(sep), data[:sepIdx], nil
+/*
+	func unmarshalProxyRules(r io.Reader) ([]ProxyRule, error) {
+		scanner := bufio.NewScanner(r)
+		sep := []byte("---\n")
+		scanner.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
+			if atEOF && len(data) == 0 {
+				return 0, nil, nil
 			}
-		}
-		return len(data), data, nil
-	})
-	list := make([]ProxyRule, 0)
-	for scanner.Scan() {
-		proxyRule := ProxyRule{}
+			sepIdx := bytes.Index(data, sep)
+			if sepIdx >= 0 {
+				if len(bytes.TrimSpace(data[:sepIdx])) == 0 {
+					return sepIdx + len(sep), nil, nil
+				} else {
+					return sepIdx + len(sep), data[:sepIdx], nil
+				}
+			}
+			return len(data), data, nil
+		})
+		list := make([]ProxyRule, 0)
+		for scanner.Scan() {
+			proxyRule := ProxyRule{}
 
-		err := yaml.Unmarshal([]byte(scanner.Text()), &proxyRule)
-		if err != nil {
+			err := yaml.Unmarshal([]byte(scanner.Text()), &proxyRule)
+			if err != nil {
+				return nil, err
+			}
+
+			// default is http proxy if proxy has value
+			if proxyRule.Type == "" && proxyRule.Proxy != "" {
+				proxyRule.Type = HttpProxyType
+			}
+
+			list = append(list, proxyRule)
+		}
+		if err := scanner.Err(); err != nil {
 			return nil, err
 		}
-
-		// default is http proxy if proxy has value
-		if proxyRule.Type == "" && proxyRule.Proxy != "" {
-			proxyRule.Type = HttpProxyType
-		}
-
-		list = append(list, proxyRule)
+		return list, nil
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return list, nil
-}
 
 func (config *proxyConfig) DirectorFunc(onlyNoProxy bool) []directorFunc {
 	directorFuncs := make([]directorFunc, 0, 10)
@@ -206,3 +192,4 @@ func isDomain(rule string) bool {
 func isCIDR(rule string) bool {
 	return strings.Contains(rule, "/")
 }
+*/

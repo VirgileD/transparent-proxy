@@ -3,11 +3,12 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
-	"golang.org/x/net/proxy"
 	"net"
 	"net/url"
 	"strconv"
 	"strings"
+
+	"golang.org/x/net/proxy"
 )
 
 type ProxyType string
@@ -16,18 +17,6 @@ var (
 	HttpProxyType   ProxyType = "http"
 	Socks5ProxyType ProxyType = "socks5"
 )
-
-func (typ *ProxyType) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	var typeString string
-	err := unmarshal(&typeString)
-	if err != nil {
-		return err
-	}
-
-	*typ, err = ParseProxyType(typeString)
-
-	return err
-}
 
 func ParseProxyType(typeString string) (typ ProxyType, err error) {
 	newType := ProxyType(typeString)
@@ -72,10 +61,6 @@ func (p *Proxy) ToURL() *url.URL {
 		}
 	}
 	return u
-}
-
-func (p *Proxy) String() string {
-	return p.ToURL().String()
 }
 
 func (p *Proxy) UserInfoBase64() string {
@@ -130,10 +115,9 @@ func split(s string, c string) (string, string) {
 	return s[:i], s[i+len(c):]
 }
 
-func ParseProxyList(proxyList string) ([]*Proxy, error) {
-	list := strings.Split(proxyList, ",")
-	pList := make([]*Proxy, len(list))
-	for i, proxySpec := range list {
+func ParseProxyList(proxyList *[]string) ([]*Proxy, error) {
+	pList := make([]*Proxy, len(*proxyList))
+	for i, proxySpec := range *proxyList {
 		var err error
 		pList[i], err = ParseProxy(proxySpec)
 		if err != nil {

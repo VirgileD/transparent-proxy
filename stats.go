@@ -39,7 +39,7 @@ import (
 	"syscall"
 	"time"
 
-	log "github.com/feng-zh/go-any-proxy/internal/flogger"
+	log "github.com/sirupsen/logrus"
 )
 
 var acceptErrors struct {
