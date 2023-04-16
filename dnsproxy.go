@@ -143,9 +143,9 @@ func dialUdp(remoteAddr string) (*net.UDPConn, error) {
 		return nil, err
 	}
 	if iptablesIntegration {
-		err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, config.Default().Int("ipTableMark", 5))
+		err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, ipTableMark)
 		if err != nil {
-			log.Debugf("Cannot set sockopt with mark %v: %v", config.Default().Int("ipTableMark", 5), err)
+			log.Debugf("Cannot set sockopt with mark %v: %v", ipTableMark, err)
 			syscall.Close(fd)
 			return nil, err
 		}

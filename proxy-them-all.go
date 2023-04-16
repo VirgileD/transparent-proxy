@@ -64,6 +64,13 @@ func versionString() string {
 	return fmt.Sprintf("proxy-them-all %s (build %v, %v by %v@%v) - %s", VERSION, buildNum, buildDate, BUILDUSER, BUILDHOST, goVersion)
 }
 
+const SO_ORIGINAL_DST = 80
+const DEFAULTLOG = "/var/log/proxy-them-all.log"
+const STATSFILE = "/var/log/proxy-them-all.stats"
+
+var ipTableMark = config.Default().Int("ipTableMark", 5)
+var relayingRedirectResponse = config.Default().Bool("relayingRedirectResponse", true)
+
 var loglevels = map[string]logrus.Level{"panic": logrus.PanicLevel, "fatal": logrus.FatalLevel, "error": logrus.ErrorLevel,
 	"warning": logrus.WarnLevel, "info": logrus.InfoLevel, "debug": logrus.DebugLevel, "trace": logrus.TraceLevel}
 
@@ -170,9 +177,9 @@ var gProxyServers []*Proxy
 var gLogfile string
 var gCpuProfile string
 var gMemProfile string
-var gClientRedirects int
+var relayingRedirectResponse int
 var gReverseLookups int
-var gIpTableMark int
+var ipTableMark int
 var gDnsListenAddrPort string
 var gProxyConfigFile string
 var gProxyPorts string
@@ -246,11 +253,11 @@ func init() {
 	flag.StringVar(&gListenAddrPort, "l", "", "Address and port to listen on")
 	flag.StringVar(&gMemProfile, "m", "", "Write mem profile to file")
 	flag.StringVar(&gProxyServerSpec, "p", "", "Proxy servers to use, separated by commas. E.g. -p proxy1.tld.com:80,proxy2.tld.com:8080,proxy3.tld.com:80")
-	flag.IntVar(&gClientRedirects, "r", 0, "Should we relay HTTP redirects from upstream proxies? -r=1 if we should.\n")
+	flag.IntVar(&relayingRedirectResponse, "r", 0, "Should we relay HTTP redirects from upstream proxies? -r=1 if we should.\n")
 	flag.IntVar(&gReverseLookups, "R", 0, "Should we perform reverse lookups of destination IPs and use hostnames? -R=1 if we should.\n")
 	flag.IntVar(&gSkipCheckUpstreamsReachable, "s", 0, "On startup, should we check if the upstreams are available? -s=0 means we should and if one is found to be not reachable, then remove it from the upstream list.\n")
 	flag.IntVar(&gVerbosity, "v", 0, "Control level of logging. v=1 results in debugging info printed to the log.\n")
-	flag.IntVar(&gIpTableMark, "k", 5, "Mark value set in proxy stream, default is 5.\n")
+	flag.IntVar(&ipTableMark, "k", 5, "Mark value set in proxy stream, default is 5.\n")
 	flag.StringVar(&gDnsListenAddrPort, "dns", "", "Address and port for DNS Proxy to intercept name resolving.\n")
 	flag.StringVar(&gProxyConfigFile, "pf", "", "Additional proxy configuration file for advanced proxy routing.\n")
 	flag.StringVar(&gProxyPorts, "ports", "", "Proxy Ports used for internal iptables. If not specified use external iptables utility to setup.\n")
@@ -408,7 +415,7 @@ func main() {
 		} else {
 			listenPort = lnaddr.Port
 		}
-		ipTableHandler, err := InstallIPTables(directs, gProxyPorts, listenPort, gIpTableMark)
+		ipTableHandler, err := InstallIPTables(directs, gProxyPorts, listenPort, ipTableMark)
 		if err != nil {
 			panic(err)
 		}
@@ -699,7 +706,7 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 			ioCopy(clientConn, proxyConn, "client", "proxyserver")
 			return
 		}
-		if strings.Contains(status, "301") || strings.Contains(status, "302") && gClientRedirects == 1 {
+		if strings.Contains(status, "301") || strings.Contains(status, "302") && relayingRedirectResponse == 1 {
 			log.Debugf("PROXY|%v->%v->%s:%d|Status from proxy=%s (Redirect), relaying response to client", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port, strconv.Quote(status))
 			incrProxy300Responses()
 			fmt.Fprint(clientConn, status)

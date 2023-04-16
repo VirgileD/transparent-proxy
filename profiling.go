@@ -5,25 +5,33 @@ import (
 	"os/signal"
 	"runtime/pprof"
 	"time"
+
+	"github.com/gookit/config/v2"
 )
+
+var gMemProfile = config.Default().Bool("writeMemProfile", false)
+var gCpuProfile = config.Default().Bool("writeCpuProfile", false)
+
+const memProfilingFile = "proxy-them-all.profiling.mem"
+const cpuProfilingFile = "proxy-them-all.profiling.cpu"
 
 func setupProfiling() {
 	// Make sure we have enough time to write profile's to disk, even if user presses Ctrl-C
-	if gMemProfile == "" || gCpuProfile == "" {
+	if !gMemProfile && !gCpuProfile {
 		return
 	}
 
 	var profilef *os.File
 	var err error
-	if gMemProfile != "" {
-		profilef, err = os.Create(gMemProfile)
+	if gMemProfile {
+		profilef, err = os.Create(memProfilingFile)
 		if err != nil {
 			panic(err)
 		}
 	}
 
-	if gCpuProfile != "" {
-		f, err := os.Create(gCpuProfile)
+	if gCpuProfile {
+		f, err := os.Create(cpuProfilingFile)
 		if err != nil {
 			panic(err)
 		}
@@ -34,10 +42,10 @@ func setupProfiling() {
 	signal.Notify(c, os.Interrupt)
 	go func() {
 		for range c {
-			if gCpuProfile != "" {
+			if gCpuProfile {
 				pprof.StopCPUProfile()
 			}
-			if gMemProfile != "" {
+			if gMemProfile {
 				pprof.WriteHeapProfile(profilef)
 				profilef.Close()
 			}

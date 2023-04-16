@@ -108,16 +108,14 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 		headerXFF = fmt.Sprintf("X-Forwarded-For: %s\r\n", host)
 	}
 
-	if gReverseLookups == 1 {
-		hostname := gReverseLookupCache.lookup(ipv4)
-		if hostname != "" {
-			ipv4 = hostname
-		} else {
-			names, err := net.LookupAddr(ipv4)
-			if err == nil && len(names) > 0 {
-				gReverseLookupCache.store(ipv4, names[0])
-				ipv4 = names[0]
-			}
+	hostname := reverseLookupCache.lookup(ipv4)
+	if hostname != "" {
+		ipv4 = hostname
+	} else {
+		names, err := net.LookupAddr(ipv4)
+		if err == nil && len(names) > 0 {
+			reverseLookupCache.store(ipv4, names[0])
+			ipv4 = names[0]
 		}
 	}
 
@@ -165,7 +163,7 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 			ioCopy(clientConn, proxyConn, "client", "proxyserver")
 			return
 		}
-		if strings.Contains(status, "301") || strings.Contains(status, "302") && gClientRedirects == 1 {
+		if strings.Contains(status, "301") || strings.Contains(status, "302") && relayingRedirectResponse {
 			log.Debugf("PROXY|%v->%v->%s:%d|Status from proxy=%s (Redirect), relaying response to client", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port, strconv.Quote(status))
 			incrProxy300Responses()
 			fmt.Fprint(clientConn, status)
@@ -387,9 +385,9 @@ func dial(spec string) (net.Conn, error) {
 		log.Infof("dial(): ERR: could not create socket: %v", err)
 		return nil, err
 	}
-	err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, gIpTableMark)
+	err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, ipTableMark)
 	if err != nil {
-		log.Debugf("dial(): ERR: could not set sockopt with mark %v: %v", gIpTableMark, err)
+		log.Debugf("dial(): ERR: could not set sockopt with mark %v: %v", ipTableMark, err)
 		syscall.Close(fd)
 		return nil, err
 	}
@@ -413,4 +411,31 @@ func dial(spec string) (net.Conn, error) {
 		return tcpConn, err
 	}
 	return nil, errors.New("invalid connection type")
+}
+
+// netAddrToSockaddr converts a net.Addr to a syscall.Sockaddr.
+// Returns nil if the input is invalid or conversion is not possible.
+func netAddrToSockaddr(addr net.Addr) syscall.Sockaddr {
+	switch addr := addr.(type) {
+	case *net.TCPAddr:
+		return tcpAddrToSockaddr(addr)
+	default:
+		return nil
+	}
+}
+
+// tcpAddrToSockaddr converts a net.TCPAddr to a syscall.Sockaddr.
+// Returns nil if conversion fails.
+func tcpAddrToSockaddr(addr *net.TCPAddr) syscall.Sockaddr {
+	sa := ipAndZoneToSockaddr(addr.IP, addr.Zone)
+	switch sa := sa.(type) {
+	case *syscall.SockaddrInet4:
+		sa.Port = addr.Port
+		return sa
+	case *syscall.SockaddrInet6:
+		sa.Port = addr.Port
+		return sa
+	default:
+		return nil
+	}
 }

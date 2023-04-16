@@ -35,7 +35,7 @@ func LoadIPTables() {
 	} else {
 		listenPort = lnaddr.Port
 	}
-	ipTableHandler, err := InstallIPTables(config.Default().String("ignorePorts", "80,443"), listenPort, config.Default().Int("ipTableMark", 5))
+	ipTableHandler, err := InstallIPTables(config.Default().String("ignorePorts", "80,443"), listenPort, ipTableMark)
 	if err != nil {
 		panic(err)
 	}
