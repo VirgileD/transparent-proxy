@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"strconv"
 
 	"net"
 
@@ -16,7 +17,7 @@ type ipTableHandler struct {
 	tables             *iptables.IPTables
 	mark               int
 	listenEndpointPort int
-	//dnsPort            int
+	dnsPort            int
 	proxyPorts     string
 	outputChain    string
 	preOutingChain string
@@ -50,6 +51,10 @@ func InstallIPTables(proxyPorts string, listenEndpointPort int, mark int) (handl
 
 	//_RANDOM=${RANDOM}
 	random := rand.Intn(1 << 16)
+	var dnsPort int
+	if dnsPort, err = strconv.Atoi(strings.Split(config.Default().String("DnsProxyEndPoint", "127.0.0.1:53"), ":")[1]); err != nil {
+		return nil, err
+	}
 
 	//IPTABELE_OUTPUT_CHAIN=PROXY_OUTPUT_${_RANDOM}
 	outputChain := fmt.Sprintf("PROXY_OUTPUT_%d", random)
@@ -61,7 +66,7 @@ func InstallIPTables(proxyPorts string, listenEndpointPort int, mark int) (handl
 		tables:             tables,
 		mark:               mark,
 		listenEndpointPort: listenEndpointPort,
-		//dnsPort:            dnsPort,
+		dnsPort:            dnsPort,
 		proxyPorts:     proxyPorts,
 		outputChain:    outputChain,
 		preOutingChain: preOutingChain,
@@ -120,25 +125,19 @@ func InstallIPTables(proxyPorts string, listenEndpointPort int, mark int) (handl
 	}
 	handler.tables = tables
 
-	/*
-		var dnsPort int
-		if dnsPort, err = strconv.Atoi(strings.Split(config.Default().String("DnsProxyEndPoint", "127.0.0.1:53"), ":")[1]); err != nil {
-			return nil, err
-		}
-
-		// iptables -t nat -A OUTPUT -p udp -m mark ! --mark ${IPTABLE_MARK} -m multiport --dports ${DNS_PORT} -j REDIRECT --to-port ${LISTEN_PORT}
-		if err = tables.Append("nat", "OUTPUT",
-			args("-p udp -m mark ! --mark %d -m multiport --dports %d -j REDIRECT --to-port %d", mark, dnsPort, listenEndpointPort)...); err != nil {
-			return handler, err
-		}
-		handler.tables = tables
-		// iptables -t nat -A PREROUTING -p udp -m multiport --dports ${DNS_PORT} -j REDIRECT --to-port ${LISTEN_PORT}
-		if err = tables.Append("nat", "PREROUTING",
-			args("-p udp -m multiport --dports %d -j REDIRECT --to-port %d", dnsPort, listenEndpointPort)...); err != nil {
-			return handler, err
-		}
-		handler.tables = tables
-	*/
+	
+	// iptables -t nat -A OUTPUT -p udp -m mark ! --mark ${IPTABLE_MARK} -m multiport --dports ${DNS_PORT} -j REDIRECT --to-port ${LISTEN_PORT}
+	if err = tables.Append("nat", "OUTPUT",
+		args("-p udp -m mark ! --mark %d -m multiport --dports %d -j REDIRECT --to-port %d", mark, dnsPort, listenEndpointPort)...); err != nil {
+		return handler, err
+	}
+	handler.tables = tables
+	// iptables -t nat -A PREROUTING -p udp -m multiport --dports ${DNS_PORT} -j REDIRECT --to-port ${LISTEN_PORT}
+	if err = tables.Append("nat", "PREROUTING",
+		args("-p udp -m multiport --dports %d -j REDIRECT --to-port %d", dnsPort, listenEndpointPort)...); err != nil {
+		return handler, err
+	}
+	handler.tables = tables
 
 	return handler, nil
 }
@@ -154,7 +153,7 @@ func (h *ipTableHandler) Uninstall() error {
 	mark := h.mark
 	listenEndpointPort := h.listenEndpointPort
 	proxyPorts := h.proxyPorts
-	//dnsPort := h.dnsPort
+	dnsPort := h.dnsPort
 
 	//   iptables -t filter -D OUTPUT -p tcp -m mark --mark ${IPTABLE_MARK} --dport ${LISTEN_PORT} -j REJECT
 	if err := tables.Delete("filter", "OUTPUT",
@@ -200,21 +199,21 @@ func (h *ipTableHandler) Uninstall() error {
 		return err
 	}
 
-	/*
-		//  if [ "${DNS_PORT}" -gt 0 ]; then
-		if dnsPort > 0 {
-			// iptables -t nat -D OUTPUT -p udp -m mark ! --mark ${IPTABLE_MARK} -m multiport --dports ${DNS_PORT} -j REDIRECT --to-port ${LISTEN_PORT}
-			if err := tables.Delete("nat", "OUTPUT",
-				args("-p udp -m mark ! --mark %d -m multiport --dports %d -j REDIRECT --to-port %d", mark, dnsPort, listenEndpointPort)...); err != nil {
-				return err
-			}
-
-			// iptables -t nat -D PREROUTING -p udp -m multiport --dports ${DNS_PORT} -j REDIRECT --to-port ${LISTEN_PORT}
-			if err := tables.Delete("nat", "PREROUTING",
-				args("-p udp -m multiport --dports %d -j REDIRECT --to-port %d", dnsPort, listenEndpointPort)...); err != nil {
-				return err
-			}
+	//  if [ "${DNS_PORT}" -gt 0 ]; then
+	if dnsPort > 0 {
+		// iptables -t nat -D OUTPUT -p udp -m mark ! --mark ${IPTABLE_MARK} -m multiport --dports ${DNS_PORT} -j REDIRECT --to-port ${LISTEN_PORT}
+		if err := tables.Delete("nat", "OUTPUT",
+			args("-p udp -m mark ! --mark %d -m multiport --dports %d -j REDIRECT --to-port %d", mark, dnsPort, listenEndpointPort)...); err != nil {
+			return err
 		}
-	*/
+
+		// iptables -t nat -D PREROUTING -p udp -m multiport --dports ${DNS_PORT} -j REDIRECT --to-port ${LISTEN_PORT}
+		if err := tables.Delete("nat", "PREROUTING",
+			args("-p udp -m multiport --dports %d -j REDIRECT --to-port %d", dnsPort, listenEndpointPort)...); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
+

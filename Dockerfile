@@ -1,11 +1,10 @@
 FROM golang:1.20-alpine3.17 AS builder
 
-RUN apk add git
-
-COPY . /prox-them-all
-
 WORKDIR /prox-them-all
+COPY go.mod go.sum ./
+RUN go mod download
 
+COPY *.go *.json ./
 RUN go build
 
 FROM alpine:3.17
