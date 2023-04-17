@@ -1,8 +1,9 @@
 {
-    "DnsProxyEndPoint": "192.168.122.1:53",
+    "DnsProxyEndPoint": ":53",
     "ipTableMark": 5,
     "listenEndpoint": "127.0.0.1:3129",
-    "ignorePorts": "80",
+    "proxyPorts": "80,443",
+    "noProxyList": "127.0.0.1/8,192.168.0.1/16,172.16.0.0/12",
     "writeMemProfile": false,
     "writeCpuProfile": false,
     "relayingRedirectResponse": true,

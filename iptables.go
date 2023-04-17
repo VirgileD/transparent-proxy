@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 	"math/rand"
-	"strings"
 	"strconv"
+	"strings"
 
 	"net"
 
@@ -18,32 +18,36 @@ type ipTableHandler struct {
 	mark               int
 	listenEndpointPort int
 	dnsPort            int
-	proxyPorts     string
-	outputChain    string
-	preOutingChain string
+	proxyPorts         string
+	outputChain        string
+	preOutingChain     string
 }
 
 func LoadIPTables() *ipTableHandler {
-	var listenEndpointPort int
+	var listenEndpoint = config.Default().String("listenEndpoint", "127.0.0.1:3129")
+	var proxyPorts string = config.Default().String("proxyPorts", "80,443")
 
+	var listenEndpointPort int
 	var lnaddr *net.TCPAddr
 	var err error
-	if lnaddr, err = net.ResolveTCPAddr("tcp", config.Default().String("listenEndpoint", "127.0.0.1:3129")); err != nil {
+	if lnaddr, err = net.ResolveTCPAddr("tcp", listenEndpoint); err != nil {
 		panic(err)
 	} else {
 		listenEndpointPort = lnaddr.Port
 	}
-	ipTableHandler, err := InstallIPTables(config.Default().String("ignorePorts", "80,443"), listenEndpointPort, ipTableMark)
+	ipTableHandler, err := InstallIPTables(proxyPorts, listenEndpointPort, ipTableMark)
 	if err != nil {
 		ipTableHandler.Uninstall()
 		panic(err)
 	}
-	log.Infof("Installed iptables to redirect streams to port %v (with ignored ports %v)", listenEndpointPort, config.Default().String("ignorePorts", "80,443"))
+	log.Infof("Installed iptables to redirect ports %v to port %v ", listenEndpointPort, proxyPorts)
 
 	return ipTableHandler
 }
 
 func InstallIPTables(proxyPorts string, listenEndpointPort int, mark int) (handler *ipTableHandler, err error) {
+	var noProxyList string = config.Default().String("noProxyList", "80,443")
+
 	tables, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
 		return nil, err
@@ -52,7 +56,7 @@ func InstallIPTables(proxyPorts string, listenEndpointPort int, mark int) (handl
 	//_RANDOM=${RANDOM}
 	random := rand.Intn(1 << 16)
 	var dnsPort int
-	if dnsPort, err = strconv.Atoi(strings.Split(config.Default().String("DnsProxyEndPoint", "127.0.0.1:53"), ":")[1]); err != nil {
+	if dnsPort, err = strconv.Atoi(strings.Split(config.Default().String("DnsProxyEndPoint", ":53"), ":")[1]); err != nil {
 		return nil, err
 	}
 
@@ -67,9 +71,9 @@ func InstallIPTables(proxyPorts string, listenEndpointPort int, mark int) (handl
 		mark:               mark,
 		listenEndpointPort: listenEndpointPort,
 		dnsPort:            dnsPort,
-		proxyPorts:     proxyPorts,
-		outputChain:    outputChain,
-		preOutingChain: preOutingChain,
+		proxyPorts:         proxyPorts,
+		outputChain:        outputChain,
+		preOutingChain:     preOutingChain,
 	}
 
 	//  iptables -t filter -I OUTPUT 1 -p tcp -m mark --mark ${IPTABLE_MARK} --dport ${LISTEN_PORT} -j REJECT
@@ -80,6 +84,12 @@ func InstallIPTables(proxyPorts string, listenEndpointPort int, mark int) (handl
 
 	//  iptables -t nat -N ${IPTABELE_OUTPUT_CHAIN}
 	if err = tables.NewChain("nat", outputChain); err != nil {
+		return handler, err
+	}
+	handler.tables = tables
+
+	//  iptables -t nat -A ${IPTABELE_OUTPUT_CHAIN} -p tcp -j RETURN -d ${NO_PROXY_LIST}
+	if err = tables.Append("nat", outputChain, args("-p tcp -j RETURN -d %s", noProxyList)...); err != nil {
 		return handler, err
 	}
 	handler.tables = tables
@@ -125,7 +135,6 @@ func InstallIPTables(proxyPorts string, listenEndpointPort int, mark int) (handl
 	}
 	handler.tables = tables
 
-	
 	// iptables -t nat -A OUTPUT -p udp -m mark ! --mark ${IPTABLE_MARK} -m multiport --dports ${DNS_PORT} -j REDIRECT --to-port ${LISTEN_PORT}
 	if err = tables.Append("nat", "OUTPUT",
 		args("-p udp -m mark ! --mark %d -m multiport --dports %d -j REDIRECT --to-port %d", mark, dnsPort, listenEndpointPort)...); err != nil {
@@ -156,14 +165,12 @@ func (h *ipTableHandler) Uninstall() error {
 	dnsPort := h.dnsPort
 
 	//   iptables -t filter -D OUTPUT -p tcp -m mark --mark ${IPTABLE_MARK} --dport ${LISTEN_PORT} -j REJECT
-	if err := tables.Delete("filter", "OUTPUT",
-		args("-p tcp -m mark --mark %d --dport %d -j REJECT", mark, listenEndpointPort)...); err != nil {
+	if err := tables.Delete("filter", "OUTPUT", args("-p tcp -m mark --mark %d --dport %d -j REJECT", mark, listenEndpointPort)...); err != nil {
 		return err
 	}
 
 	//  iptables -t nat -D OUTPUT -p tcp -m mark ! --mark ${IPTABLE_MARK} -m multiport --dports ${PROXY_PORTS} -j ${IPTABELE_OUTPUT_CHAIN}
-	if err := tables.Delete("nat", "OUTPUT",
-		args("-p tcp -m mark ! --mark %d -m multiport --dports %s -j %s", mark, proxyPorts, outputChain)...); err != nil {
+	if err := tables.Delete("nat", "OUTPUT", args("-p tcp -m mark ! --mark %d -m multiport --dports %s -j %s", mark, proxyPorts, outputChain)...); err != nil {
 		return err
 	}
 
@@ -178,8 +185,7 @@ func (h *ipTableHandler) Uninstall() error {
 	}
 
 	//  iptables -t nat -D PREROUTING -p tcp -m mark ! --mark ${IPTABLE_MARK} -m multiport --dports ${PROXY_PORTS} -j ${IPTABELE_PREROUTING_CHAIN}
-	if err := tables.Delete("nat", "PREROUTING",
-		args("-p tcp -m mark ! --mark %d -m multiport --dports %s -j %s", mark, proxyPorts, preOutingChain)...); err != nil {
+	if err := tables.Delete("nat", "PREROUTING", args("-p tcp -m mark ! --mark %d -m multiport --dports %s -j %s", mark, proxyPorts, preOutingChain)...); err != nil {
 		return err
 	}
 
@@ -199,21 +205,15 @@ func (h *ipTableHandler) Uninstall() error {
 		return err
 	}
 
-	//  if [ "${DNS_PORT}" -gt 0 ]; then
-	if dnsPort > 0 {
-		// iptables -t nat -D OUTPUT -p udp -m mark ! --mark ${IPTABLE_MARK} -m multiport --dports ${DNS_PORT} -j REDIRECT --to-port ${LISTEN_PORT}
-		if err := tables.Delete("nat", "OUTPUT",
-			args("-p udp -m mark ! --mark %d -m multiport --dports %d -j REDIRECT --to-port %d", mark, dnsPort, listenEndpointPort)...); err != nil {
-			return err
-		}
+	// iptables -t nat -D OUTPUT -p udp -m mark ! --mark ${IPTABLE_MARK} -m multiport --dports ${DNS_PORT} -j REDIRECT --to-port ${LISTEN_PORT}
+	if err := tables.Delete("nat", "OUTPUT", args("-p udp -m mark ! --mark %d -m multiport --dports %d -j REDIRECT --to-port %d", mark, dnsPort, listenEndpointPort)...); err != nil {
+		return err
+	}
 
-		// iptables -t nat -D PREROUTING -p udp -m multiport --dports ${DNS_PORT} -j REDIRECT --to-port ${LISTEN_PORT}
-		if err := tables.Delete("nat", "PREROUTING",
-			args("-p udp -m multiport --dports %d -j REDIRECT --to-port %d", dnsPort, listenEndpointPort)...); err != nil {
-			return err
-		}
+	// iptables -t nat -D PREROUTING -p udp -m multiport --dports ${DNS_PORT} -j REDIRECT --to-port ${LISTEN_PORT}
+	if err := tables.Delete("nat", "PREROUTING", args("-p udp -m multiport --dports %d -j REDIRECT --to-port %d", dnsPort, listenEndpointPort)...); err != nil {
+		return err
 	}
 
 	return nil
 }
-
