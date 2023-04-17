@@ -23,6 +23,7 @@ func LoadReverseLookupCache() {
 	reverseLookupCache = &ReverseLookupCache{
 		keys: make([]string, 65536),
 	}
+	log.Infof("Loaded reverse lookup cache")
 }
 
 func (c *ReverseLookupCache) lookup(ipv4 string) string {

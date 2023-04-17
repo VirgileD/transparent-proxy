@@ -116,6 +116,9 @@ func split(s string, c string) (string, string) {
 }
 
 func ParseProxyList(proxyList *[]string) ([]*Proxy, error) {
+	if proxyList == nil {
+		return nil, nil
+	}
 	pList := make([]*Proxy, len(*proxyList))
 	for i, proxySpec := range *proxyList {
 		var err error

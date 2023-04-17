@@ -48,7 +48,7 @@ type Rule struct {
 var rules = orderedmap.New[string, Rule]()
 
 func LoadRules() {
-	var tmpRules []BindingRule
+	var tmpRules []BindingRule = make([]BindingRule, 20)
 	var err error
 
 	err = config.BindStruct("rules", &tmpRules)

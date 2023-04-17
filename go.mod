@@ -1,4 +1,4 @@
-module proxy-them-all
+module prox-them-all
 
 go 1.20
 

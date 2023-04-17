@@ -8,10 +8,12 @@ import (
 	"net"
 	"os"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/viki-org/dnscache"
@@ -35,7 +37,7 @@ func handleConnection(clientConn *net.TCPConn) {
 
 	ipv4, port, clientConn, err := getOriginalDst(clientConn)
 	if err != nil {
-		log.Infof("handleConnection(): can not handle this connection, error occurred in getting original destination ip address/port: %+v\n", err)
+		log.Infof("handleConnection(): can not handle this connection, error occurred in getting original destination ip address/port: %+v", err)
 		return
 	}
 
@@ -119,13 +121,13 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 		}
 	}
 
-	for _, proxySpec := range proxyResolver(ipv4, port, gProxyServers) {
+	for _, proxySpec := range ResolveProxy(ipv4, port) {
 		log.Debugf("Using proxy %v for %v:%v", proxySpec, ipv4, port)
 		// handle socks5 proxy
 		if proxySpec.Type == Socks5ProxyType {
 			socks5Dial, err := proxy.SOCKS5("tcp", proxySpec.HostPort(), proxySpec.Auth, proxy.Direct)
 			if err == nil {
-				log.Debugf("PROXY|%v->%v->%s:%d|Connecting via socks5 proxy\n", clientConn.RemoteAddr(), proxySpec.HostPort(), ipv4, port)
+				log.Debugf("PROXY|%v->%v->%s:%d|Connecting via socks5 proxy", clientConn.RemoteAddr(), proxySpec.HostPort(), ipv4, port)
 				proxyConn, err = socks5Dial.Dial("tcp", fmt.Sprintf("%s:%d", ipv4, port))
 			}
 			if err != nil {
@@ -147,7 +149,7 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 			authString = fmt.Sprintf("\r\nProxy-Authorization: Basic %s", authString)
 		}
 		connectString := fmt.Sprintf("CONNECT %s:%d HTTP/1.0%s\r\n%s\r\n", ipv4, port, authString, headerXFF)
-		log.Debugf("PROXY|%v->%v->%s:%d|Sending to proxy: %s\n", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port, strconv.Quote(connectString))
+		log.Debugf("PROXY|%v->%v->%s:%d|Sending to proxy: %s", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port, strconv.Quote(connectString))
 		fmt.Fprint(proxyConn, connectString)
 		status, err := bufio.NewReader(proxyConn).ReadString('\n')
 		log.Debugf("PROXY|%v->%v->%s:%d|Received from proxy: %s", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port, strconv.Quote(status))
@@ -186,7 +188,7 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 		return
 	}
 	if !success {
-		log.Infof("PROXY|%v->UNAVAILABLE->%s:%d|ERR: Tried all proxies, but could not establish connection. Giving up.\n", clientConn.RemoteAddr(), ipv4, port)
+		log.Infof("PROXY|%v->UNAVAILABLE->%s:%d|ERR: Tried all proxies, but could not establish connection. Giving up.", clientConn.RemoteAddr(), ipv4, port)
 		fmt.Fprint(clientConn, "HTTP/1.0 503 Service Unavailable\r\nServer: go-any-proxy\r\nX-AnyProxy-Error: ERR_NO_PROXIES\r\n\r\n")
 		clientConn.Close()
 		return
@@ -197,6 +199,46 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 }
 
 func ResolveProxy(ipv4 string, port uint16) []*Proxy {
+	var hostname *string = nil
+	// iterating pairs from oldest to newest rule:
+	for rule := rules.Oldest(); rule != nil; rule = rule.Next() {
+		//fmt.Printf("%s => %s\n", pair.Key, pair.Value)
+		for _, destination := range rule.Value.destinations {
+			if isDomain(destination) {
+				re, err := regexp.Compile(destination)
+				if err != nil {
+					panic(fmt.Sprintf("Unnable to parse pattern %v", rule))
+				}
+				if hostname == nil {
+					h := GetHostName(ipv4)
+					hostname = &h
+				}
+				if *hostname == "" {
+					continue
+				}
+				*hostname = strings.TrimSuffix(*hostname, ".")
+				if re.MatchString(*hostname) {
+					log.Debugf("resolve proxy by domain %v(%v:%v): %v", *hostname, ipv4, port, rule.Key)
+					return rule.Value.proxies
+				}
+			} else if isCIDR(destination) {
+				_, directorIpNet, err := net.ParseCIDR(destination)
+				if err != nil {
+					panic(fmt.Sprintf("Unable to parse CIDR string : %s : %s\n", destination, err))
+				}
+				if directorIpNet.Contains(net.ParseIP(ipv4)) {
+					log.Debugf("resolve proxy by IP net %v(%v:%v): %v", directorIpNet, ipv4, port, rule.Key)
+					return rule.Value.proxies
+				}
+			} else {
+				// IP
+				if destination == ipv4 {
+					log.Debugf("resolve proxy by IP %v:%v: %v", ipv4, port, rule.Key)
+					return rule.Value.proxies
+				}
+			}
+		}
+	}
 	/*var hostname *string = nil
 	for _, cpr := range rules {
 		proxy, err := ParseProxy(cpr.Proxy)
@@ -205,46 +247,21 @@ func ResolveProxy(ipv4 string, port uint16) []*Proxy {
 			}
 			proxy.Type = cpr.Type
 			for _, rule := range cpr.Rules {
-				if isDomain(rule) {
-					pattern := strings.Replace(rule, ".", "\\.", -1)
-					pattern = strings.Replace(pattern, "*", ".*", -1)
-					re, err := regexp.Compile(pattern)
-					if err != nil {
-						panic(fmt.Sprintf("Unnable to parse pattern %v", rule))
-					}
-					if hostname == nil {
-						h := findHostName(ipv4)
-						hostname = &h
-					}
-					if *hostname == "" {
-						continue
-					}
-					*hostname = strings.TrimSuffix(*hostname, ".")
-					if re.MatchString(*hostname) {
-						logger.Debugf("resolve proxy by domain %v(%v:%v): %v", *hostname, ipv4, port, cpr.Proxy)
-						return insert(proxy, defaultProxyList)
-					}
-				} else if isCIDR(rule) {
-					_, directorIpNet, err := net.ParseCIDR(rule)
-					if err != nil {
-						panic(fmt.Sprintf("Unable to parse CIDR string : %s : %s\n", rule, err))
-					}
-					if directorIpNet.Contains(net.ParseIP(ipv4)) {
-						logger.Debugf("resolve proxy by IP net %v(%v:%v): %v", directorIpNet, ipv4, port, cpr.Proxy)
-						return insert(proxy, defaultProxyList)
-					}
-				} else {
-					// IP
-					if rule == ipv4 {
-						logger.Debugf("resolve proxy by IP %v:%v: %v", ipv4, port, cpr.Proxy)
-						return insert(proxy, defaultProxyList)
-					}
-				}
 			}
 		}
 	}
 	return defaultProxyList*/
 	return nil
+}
+
+func isDomain(rule string) bool {
+	return strings.IndexFunc(rule, func(r rune) bool {
+		return unicode.IsLetter(r)
+	}) != -1
+}
+
+func isCIDR(rule string) bool {
+	return strings.Contains(rule, "/")
 }
 
 func getOriginalDst(clientConn *net.TCPConn) (ipv4 string, port uint16, newTCPConn *net.TCPConn, err error) {
@@ -286,7 +303,7 @@ func getOriginalDst(clientConn *net.TCPConn) (ipv4 string, port uint16, newTCPCo
 		log.Infof("GETORIGINALDST|%v->?->FAILEDTOBEDETERMINED|ERR: getsocketopt(SO_ORIGINAL_DST) failed: %v", srcipport, err)
 		return
 	}
-	log.Debugf("getOriginalDst(): SO_ORIGINAL_DST=%+v\n", addr)
+	log.Debugf("getOriginalDst(): SO_ORIGINAL_DST=%+v", addr)
 	newTCPConn = clientConn
 
 	ipv4 = itod(uint(addr.Multiaddr[4])) + "." +

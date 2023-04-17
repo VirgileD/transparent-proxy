@@ -1,21 +1,19 @@
-FROM golang:alpine AS builder
+FROM golang:1.20-alpine3.17 AS builder
 
 RUN apk add git
 
-COPY . /go-any-proxy
+COPY . /prox-them-all
 
-WORKDIR /go-any-proxy
+WORKDIR /prox-them-all
 
-RUN docker/docker-build.sh
+RUN go build
 
-FROM alpine
+FROM alpine:3.17
 
 LABEL maintainer = "Feng Zhou <feng.zh@gmail.com>"
 
 RUN apk add iptables; rm -rf /var/cache/apk/*
 
-COPY --from=builder /go-any-proxy/docker/start-any-proxy.sh /go-any-proxy/go-any-proxy /bin/
+COPY --from=builder /prox-them-all/prox-them-all /prox-them-all/config.json /bin/
 
-ENV LISTEN_PORT=3129 HTTP_PROXY="" NO_PROXY="" IPTABLE_MARK="5" PROXY_PORTS="80,443" VERBOSE=false DNS_PORT=0 USE_FQDN=false PROXY_CONFIG_FILE=
-
-CMD ["/bin/start-any-proxy.sh"]
+CMD ["/bin/prox-them-all", "-c", "/bin/config.json" ]

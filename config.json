@@ -1,0 +1,40 @@
+{
+    "DnsProxyEndPoint": "127.0.0.1:53",
+    "ipTableMark": 5,
+    "listenEndpoint": "127.0.0.1:3129",
+    "ignorePorts": "80",
+    "writeMemProfile": false,
+    "writeCpuProfile": false,
+    "relayingRedirectResponse": true,
+    "loglevel": "info",
+    "rules": [{
+         "name": "KazanHarborRegistries",
+         "destinations": [ "10.157.72.10", "10.157.65.17", ".*\\.svc\\.meshcore\\.net" ],
+         "proxies": null
+        },
+        {
+            "name": "WL-Labs-Infra",
+            "destinations": [
+               "10.26.52.0/16",
+               "10.26.83.0/16",
+               "192.168.0.0/16"
+            ],
+            "proxies": null
+           },
+        {
+            "name": "Meshcore",
+            "destinations": [ ".*\\.meshcore\\.net" ],
+            "proxies": [
+               "http://proxy-prod.priv.atos.fr:3128"
+            ]
+        },
+        {
+            "name": "Internet",
+            "destinations": [ ".*" ],
+            "proxies": [
+               "http://rd-srv-proxy.priv.atos.fr:3128"
+            ]
+        }
+
+    ]
+}

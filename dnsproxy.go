@@ -23,14 +23,14 @@ type dnsProxy struct {
 	dnsServer  *dns.Server
 }
 
-func LoadDnsServer() {
-	DnsLocalPort := config.Default().String("DnsLocalPort", "53")
-	dp := NewDnsProxy(DnsLocalPort, "")
-	if err := dp.ListenAndServe(false); err != nil {
-		log.Warningf("Error open dns proxy on %v: %v", DnsLocalPort, err)
+func LoadDnsServer() *dnsProxy {
+	var DnsProxyEndPoint = config.Default().String("DnsProxyEndPoint", "127.0.0.1:53")
+	dnsProxyServer := NewDnsProxy(DnsProxyEndPoint, "")
+	if err := dnsProxyServer.ListenAndServe(false); err != nil {
+		log.Warningf("Error open dns proxy on %v: %v", DnsProxyEndPoint, err)
 	}
-	defer dp.Close()
-	log.Infof("Listening DNS proxy on %v", DnsLocalPort)
+	log.Infof("Listening DNS proxy on %v", DnsProxyEndPoint)
+	return dnsProxyServer
 }
 
 var iptablesIntegration = os.Getuid() == 0
@@ -143,9 +143,9 @@ func dialUdp(remoteAddr string) (*net.UDPConn, error) {
 		return nil, err
 	}
 	if iptablesIntegration {
-		err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, ipTableMark)
+		err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, config.Default().Int("ipTableMark", 5))
 		if err != nil {
-			log.Debugf("Cannot set sockopt with mark %v: %v", ipTableMark, err)
+			log.Debugf("Cannot set sockopt with mark %v: %v", config.Default().Int("ipTableMark", 5), err)
 			syscall.Close(fd)
 			return nil, err
 		}
