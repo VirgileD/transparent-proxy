@@ -11,18 +11,18 @@ import (
 )
 
 type ProxEmAllConfig struct {
-	IpTableMark              int      `default:"5"`
-	ListenEndpoint           string   `default:"127.0.0.1:3129"`
-	ProxyPorts               string   `default:"80,443"`
-	NoProxyList              []string `default:"[\"127.0.0.1/8\",\"192.168.0.1/16\",\"172.16.0.0/12\"]"`
-	WriteMemProfile          bool     `default:"false"`
-	WriteCpuProfile          bool     `default:"false"`
-	RelayingRedirectResponse bool     `default:"true"`
-	LogLevel                 string   `default:"info"`
+	IpTableMark              int      `json:"ipTableMark" default:"4"`
+	ListenEndpoint           string   `json:"listenEndpoint" default:"127.0.0.1:3129"`
+	ProxyPorts               string   `json:"proxyPorts" default:"80,443"`
+	NoProxyList              []string `json:"noProxyList" default:"['127.0.0.1/8', '192.168.0.1/16', '172.16.0.0/12']"`
+	WriteMemProfile          bool     `json:"writeMemProfile" default:"false"`
+	WriteCpuProfile          bool     `json:"writeCpuProfile" default:"false"`
+	RelayingRedirectResponse bool     `json:"relayingRedirectResponse" default:"true"`
+	LogLevel                 string   `json:"loglevel" default:"info"`
 	Rules                    []struct {
-		Name         string   `rules:"name"`
-		Destinations []string `rules:"destinations"`
-		Proxies      []string `rules:"proxies"`
+		Name         string   `json:"name"`
+		Destinations []string `json:"destinations"`
+		Proxies      []string `json:"proxies"`
 	}
 }
 
