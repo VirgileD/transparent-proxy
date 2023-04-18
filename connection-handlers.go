@@ -43,7 +43,6 @@ func handleConnection(clientConn *net.TCPConn) {
 	}
 
 	var proxies = ResolveProxy(ipv4, port)
-	log.Infof("reloveproxy: %v %v %v", ipv4, port, proxies)
 	if len(proxies) == 0 {
 		handleDirectConnection(clientConn, ipv4, port)
 	} else {
@@ -53,12 +52,11 @@ func handleConnection(clientConn *net.TCPConn) {
 }
 
 func handleDirectConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
+	// test if the client conn is still alive
 	if clientConn == nil {
 		log.Debugf("handleDirectConnection(): oops, clientConn is nil!")
 		return
 	}
-
-	// test if the underlying fd is nil
 	remoteAddr := clientConn.RemoteAddr()
 	if remoteAddr == nil {
 		log.Debugf("handleDirectConnection(): oops, clientConn.fd is nil!")
@@ -76,13 +74,13 @@ func handleDirectConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 		if directConn != nil {
 			directConnRemoteAddr = fmt.Sprintf("%v", directConn.RemoteAddr())
 		}
-		log.Infof("DIRECT|%v->%v|Could not connect, giving up: %v", clientConnRemoteAddr, directConnRemoteAddr, err)
+		log.Errorf("Direct Connection %v -> %v failed: %v", clientConnRemoteAddr, directConnRemoteAddr, err)
 		if err = clientConn.Close(); err != nil {
 			log.Debugf("handleDirectConnection(): close clientConn error: %v", err)
 		}
 		return
 	}
-	log.Debugf("DIRECT|%v->%v|Connected to remote end", clientConn.RemoteAddr(), directConn.RemoteAddr())
+	log.Errorf("Direct Connection %v -> %v connected", clientConn.RemoteAddr(), directConn.RemoteAddr())
 	incrDirectConnections()
 	go ioCopy(clientConn, directConn, "client", "directserver")
 	go ioCopy(directConn, clientConn, "directserver", "client")
@@ -95,12 +93,11 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16, pr
 	var host string
 	var headerXFF string = ""
 
+	// test if the client conn is still alive
 	if clientConn == nil {
 		log.Debugf("handleProxyConnection(): oops, clientConn is nil!")
 		return
 	}
-
-	// test if the underlying fd is nil
 	remoteAddr := clientConn.RemoteAddr()
 	if remoteAddr == nil {
 		log.Debugf("handleProxyConnect(): oops, clientConn.fd is nil!")
@@ -129,23 +126,23 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16, pr
 		if proxySpec.Type == Socks5ProxyType {
 			socks5Dial, err := proxy.SOCKS5("tcp", proxySpec.HostPort(), proxySpec.Auth, proxy.Direct)
 			if err == nil {
-				log.Debugf("PROXY|%v->%v->%s:%d|Connecting via socks5 proxy", clientConn.RemoteAddr(), proxySpec.HostPort(), ipv4, port)
+				log.Debugf("Proxyfied connection %v -> %v -> %s:%d via socks5 proxy", clientConn.RemoteAddr(), proxySpec.HostPort(), ipv4, port)
 				proxyConn, err = socks5Dial.Dial("tcp", fmt.Sprintf("%s:%d", ipv4, port))
 			}
 			if err != nil {
-				log.Debugf("PROXY|%v->%v->%s:%d|Trying next proxy.", clientConn.RemoteAddr(), proxySpec, ipv4, port)
+				log.Warnf("Proxyfied connection %v -> %v -> %s:%d via socks5 proxy failed: %v (Trying next proxy if any)", clientConn.RemoteAddr(), proxySpec, ipv4, port, err)
 				continue
 			}
-			log.Debugf("PROXY|%v->%v->%s:%d|Socks5 proxied connection", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port)
+			log.Debugf("Proxyfied connection %v -> %v -> %s:%d via socks5 proxy connected", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port)
 			success = true
 			break
 		}
 		proxyConn, err = dial(proxySpec.HostPort())
 		if err != nil {
-			log.Debugf("PROXY|%v->%v->%s:%d|Trying next proxy.", clientConn.RemoteAddr(), proxySpec, ipv4, port)
+			log.Warnf("Proxyfied Connection %v -> %v -> %v failed: %v", clientConn.RemoteAddr(), proxySpec, ipv4, port, err)
 			continue
 		}
-		log.Debugf("PROXY|%v->%v->%s:%d|Connected to proxy\n", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port)
+		log.Debugf("Proxied Connection %v -> %v -> %v connected to proxy", clientConn.RemoteAddr(), proxySpec, ipv4, port, err)
 		var authString = proxySpec.UserInfoBase64()
 		if authString != "" {
 			authString = fmt.Sprintf("\r\nProxy-Authorization: Basic %s", authString)
@@ -190,8 +187,8 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16, pr
 		return
 	}
 	if !success {
-		log.Infof("PROXY|%v->UNAVAILABLE->%s:%d|ERR: Tried all proxies, but could not establish connection. Giving up.", clientConn.RemoteAddr(), ipv4, port)
-		fmt.Fprint(clientConn, "HTTP/1.0 503 Service Unavailable\r\nServer: go-any-proxy\r\nX-AnyProxy-Error: ERR_NO_PROXIES\r\n\r\n")
+		log.Infof("Proxied Connection %v->UNAVAILABLE->%s:%d ERR: Tried all proxies, but could not establish connection. Giving up.", clientConn.RemoteAddr(), ipv4, port)
+		fmt.Fprint(clientConn, "HTTP/1.0 503 Service Unavailable\r\nServer: prox-em-all\r\nX-ProxEmAll-Error: ERR_NO_PROXIES\r\n\r\n")
 		clientConn.Close()
 		return
 	}
@@ -204,13 +201,12 @@ func ResolveProxy(ipv4 string, port uint16) []*Proxy {
 	var hostname *string = nil
 	// iterating pairs from oldest to newest rule:
 	for rule := rules.Oldest(); rule != nil; rule = rule.Next() {
-		log.Warningf("ResolveProxy(): testing rule %v", rule.Key)
-		//fmt.Printf("%s => %s\n", pair.Key, pair.Value)
+		log.Debugf("ResolveProxy(): testing rule %v", rule.Key)
 		for _, destination := range rule.Value.destinations {
-			log.Warningf("ResolveProxy(): testing rule %v destination %v (%v / %v /%v)", rule.Key, destination, isDomain(destination), isCIDR(destination), "dest is IP")
+			log.Debugf("ResolveProxy(): testing rule %v destination %v (%v / %v /%v)", rule.Key, destination, isDomain(destination), isCIDR(destination), "dest is IP")
 			// IP
 			if isIPV4(destination) && destination == ipv4 {
-				log.Debugf("resolve proxy by IP %v:%v: %v", ipv4, port, rule.Key)
+				log.Infof("Resolve proxy by destination IP %v:%v: %v", ipv4, port, rule.Key)
 				return rule.Value.proxies
 			} else if isCIDR(destination) {
 				_, directorIpNet, err := net.ParseCIDR(destination)
@@ -218,7 +214,7 @@ func ResolveProxy(ipv4 string, port uint16) []*Proxy {
 					panic(fmt.Sprintf("Unable to parse CIDR string : %s : %s\n", destination, err))
 				}
 				if directorIpNet.Contains(net.ParseIP(ipv4)) {
-					log.Debugf("resolve proxy by IP net %v(%v:%v): %v", directorIpNet, ipv4, port, rule.Key)
+					log.Infof("resolve proxy by destination CIDR %v:%v in %v: %v", ipv4, port, directorIpNet, rule.Key)
 					return rule.Value.proxies
 				}
 			} else if isDomain(destination) {
@@ -235,24 +231,13 @@ func ResolveProxy(ipv4 string, port uint16) []*Proxy {
 				}
 				*hostname = strings.TrimSuffix(*hostname, ".")
 				if re.MatchString(*hostname) {
-					log.Debugf("resolve proxy by domain %v(%v:%v): %v", *hostname, ipv4, port, rule.Key)
+					log.Infof("resolve proxy by domain %v:%v is %v: %v", ipv4, port, *hostname, rule.Key)
 					return rule.Value.proxies
 				}
 			}
 		}
 	}
-	/*var hostname *string = nil
-	for _, cpr := range rules {
-		proxy, err := ParseProxy(cpr.Proxy)
-			if err != nil {
-				panic(err)
-			}
-			proxy.Type = cpr.Type
-			for _, rule := range cpr.Rules {
-			}
-		}
-	}
-	return defaultProxyList*/
+	log.Warnf("Can't resolve proxy for %v (%v:%v), Trying direct connection", *hostname, ipv4, port)
 	return nil
 }
 

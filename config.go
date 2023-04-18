@@ -14,7 +14,7 @@ type ProxEmAllConfig struct {
 	IpTableMark              int      `json:"ipTableMark" default:"4"`
 	ListenEndpoint           string   `json:"listenEndpoint" default:"127.0.0.1:3129"`
 	ProxyPorts               string   `json:"proxyPorts" default:"80,443"`
-	NoProxyList              []string `json:"noProxyList" default:"['127.0.0.1/8', '192.168.0.1/16', '172.16.0.0/12']"`
+	NoProxyList              []string `json:"noProxyList" default:"[ '172.16.0.0/12']"`
 	WriteMemProfile          bool     `json:"writeMemProfile" default:"false"`
 	WriteCpuProfile          bool     `json:"writeCpuProfile" default:"false"`
 	RelayingRedirectResponse bool     `json:"relayingRedirectResponse" default:"true"`
