@@ -4,15 +4,45 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
 	"net"
 
 	"github.com/coreos/go-iptables/iptables"
+	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/gookit/config/v2"
 	log "github.com/sirupsen/logrus"
+	"github.com/vishvananda/netlink"
 )
+
+func autoDiscoverDirects() ([]string, error) {
+	var noProxyList []string = config.Default().Strings("noProxyList")
+	if routes, err := netlink.RouteList(nil, netlink.FAMILY_V4); err != nil {
+		return nil, err
+	} else {
+		set := hashset.New()
+		// default configured noProxy
+		s := make([]interface{}, len(noProxyList))
+		for i, v := range noProxyList {
+			s[i] = v
+		}
+		set.Add(s...)
+		for _, route := range routes {
+			if route.Dst != nil && route.Src != nil {
+				set.Add(route.Dst.String())
+			}
+		}
+		var items []string
+		for _, k := range set.Values() {
+			items = append(items, fmt.Sprintf("%s", k))
+		}
+		sort.Strings(items)
+		log.Infof("Direct connection to %v", items)
+		return items, nil
+	}
+}
 
 type ipTableHandler struct {
 	tables             *iptables.IPTables
@@ -47,13 +77,12 @@ func LoadIPTables() *ipTableHandler {
 }
 
 func InstallIPTables(proxyPorts string, listenEndpointPort int, mark int) (handler *ipTableHandler, err error) {
-	var noProxyList string = config.Default().String("noProxyList", "127.0.0.1/8,192.168.0.1/16,172.16.0.0/12")
 	var autoDiscoveredDirectDestinations []string
-	if autoDiscoveredDirectDestinations, err = autoDiscoverDirects(strings.Split(noProxyList, ",")); err != nil {
+	if autoDiscoveredDirectDestinations, err = autoDiscoverDirects(); err != nil {
 		log.Fatalf("Error while auto discovering direct rules: %v", err)
 		os.Exit(1)
 	}
-	config.Set("noProxyList", autoDiscoveredDirectDestinations)
+	var noProxyString string = strings.Join(autoDiscoveredDirectDestinations, ",")
 
 	tables, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
@@ -96,7 +125,7 @@ func InstallIPTables(proxyPorts string, listenEndpointPort int, mark int) (handl
 	handler.tables = tables
 
 	//  iptables -t nat -A ${IPTABELE_OUTPUT_CHAIN} -p tcp -j RETURN -d ${NO_PROXY_LIST}
-	if err = tables.Append("nat", outputChain, args("-p tcp -j RETURN -d %s", noProxyList)...); err != nil {
+	if err = tables.Append("nat", outputChain, args("-p tcp -j RETURN -d %s", noProxyString)...); err != nil {
 		return handler, err
 	}
 	handler.tables = tables
@@ -120,7 +149,7 @@ func InstallIPTables(proxyPorts string, listenEndpointPort int, mark int) (handl
 	handler.tables = tables
 
 	//  iptables -t nat -A ${IPTABELE_PREROUTING_CHAIN} -p tcp -j RETURN -d ${NO_PROXY_LIST}
-	if err = tables.Append("nat", preOutingChain, args("-p tcp -j RETURN -d %s", noProxyList)...); err != nil {
+	if err = tables.Append("nat", preOutingChain, args("-p tcp -j RETURN -d %s", noProxyString)...); err != nil {
 		return handler, err
 	}
 	handler.tables = tables
