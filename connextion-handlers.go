@@ -21,6 +21,7 @@ import (
 )
 
 var resolver = dnscache.New(time.Minute * 30)
+var ipv4RegEx, _ = regexp.Compile(`^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$`)
 
 func handleConnection(clientConn *net.TCPConn) {
 	if clientConn == nil {
@@ -207,7 +208,20 @@ func ResolveProxy(ipv4 string, port uint16) []*Proxy {
 		//fmt.Printf("%s => %s\n", pair.Key, pair.Value)
 		for _, destination := range rule.Value.destinations {
 			log.Warningf("ResolveProxy(): testing rule %v destination %v (%v / %v /%v)", rule.Key, destination, isDomain(destination), isCIDR(destination), "dest is IP")
-			if isDomain(destination) {
+			// IP
+			if isIPV4(destination) && destination == ipv4 {
+				log.Debugf("resolve proxy by IP %v:%v: %v", ipv4, port, rule.Key)
+				return rule.Value.proxies
+			} else if isCIDR(destination) {
+				_, directorIpNet, err := net.ParseCIDR(destination)
+				if err != nil {
+					panic(fmt.Sprintf("Unable to parse CIDR string : %s : %s\n", destination, err))
+				}
+				if directorIpNet.Contains(net.ParseIP(ipv4)) {
+					log.Debugf("resolve proxy by IP net %v(%v:%v): %v", directorIpNet, ipv4, port, rule.Key)
+					return rule.Value.proxies
+				}
+			} else if isDomain(destination) {
 				re, err := regexp.Compile(destination)
 				if err != nil {
 					panic(fmt.Sprintf("Unnable to parse pattern %v", rule))
@@ -222,21 +236,6 @@ func ResolveProxy(ipv4 string, port uint16) []*Proxy {
 				*hostname = strings.TrimSuffix(*hostname, ".")
 				if re.MatchString(*hostname) {
 					log.Debugf("resolve proxy by domain %v(%v:%v): %v", *hostname, ipv4, port, rule.Key)
-					return rule.Value.proxies
-				}
-			} else if isCIDR(destination) {
-				_, directorIpNet, err := net.ParseCIDR(destination)
-				if err != nil {
-					panic(fmt.Sprintf("Unable to parse CIDR string : %s : %s\n", destination, err))
-				}
-				if directorIpNet.Contains(net.ParseIP(ipv4)) {
-					log.Debugf("resolve proxy by IP net %v(%v:%v): %v", directorIpNet, ipv4, port, rule.Key)
-					return rule.Value.proxies
-				}
-			} else {
-				// IP
-				if destination == ipv4 {
-					log.Debugf("resolve proxy by IP %v:%v: %v", ipv4, port, rule.Key)
 					return rule.Value.proxies
 				}
 			}
@@ -265,6 +264,10 @@ func isDomain(rule string) bool {
 
 func isCIDR(rule string) bool {
 	return strings.Contains(rule, "/")
+}
+
+func isIPV4(rule string) bool {
+	return ipv4RegEx.MatchString(rule)
 }
 
 func getOriginalDst(clientConn *net.TCPConn) (ipv4 string, port uint16, newTCPConn *net.TCPConn, err error) {
