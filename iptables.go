@@ -71,7 +71,7 @@ func LoadIPTables() *ipTableHandler {
 		ipTableHandler.Uninstall()
 		panic(err)
 	}
-	log.Infof("Installed iptables to redirect ports %v to port %v ", listenEndpointPort, proxyPorts)
+	log.Infof("Installed iptables to redirect ports %v to port %v", proxyPorts, listenEndpointPort)
 
 	return ipTableHandler
 }
