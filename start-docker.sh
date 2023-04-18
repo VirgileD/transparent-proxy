@@ -1,4 +1,4 @@
 #!/bin/sh
 
-docker run --privileged --network=host prox-them-all
+docker run --rm --name prox-them-all --privileged --network=host prox-them-all
 

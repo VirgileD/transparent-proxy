@@ -108,8 +108,6 @@ func main() {
 	}
 	LoadConfig(configFile)
 
-	LoadIPTables()
-
 	setupLogging()
 	setupProfiling()
 	setupStats()

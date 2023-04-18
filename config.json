@@ -1,5 +1,5 @@
 {
-    "DnsProxyEndPoint": ":53",
+    "DnsProxyEndPoint": "127.0.0.1:53",
     "ipTableMark": 5,
     "listenEndpoint": "127.0.0.1:3129",
     "proxyPorts": "80,443",
