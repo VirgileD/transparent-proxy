@@ -174,7 +174,7 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16, pr
 			ioCopy(clientConn, proxyConn, "client", "proxyserver")
 			return
 		}
-		if strings.Contains(status, "200") {
+		if !strings.Contains(status, "200") {
 			log.Infof("PROXY|%v->%v->%s:%d|ERR: Proxy response to CONNECT was: %s. Trying next proxy.\n", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port, strconv.Quote(status))
 			incrProxyNon200Responses()
 			continue
