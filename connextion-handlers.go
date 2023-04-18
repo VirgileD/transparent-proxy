@@ -47,7 +47,7 @@ func handleConnection(clientConn *net.TCPConn) {
 	if proxies == nil {
 		handleDirectConnection(clientConn, ipv4, port)
 	} else {
-		handleProxyConnection(clientConn, ipv4, port)
+		handleProxyConnection(clientConn, ipv4, port, proxies)
 	}
 
 }
@@ -88,7 +88,7 @@ func handleDirectConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 	go ioCopy(directConn, clientConn, "directserver", "client")
 }
 
-func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
+func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16, proxies []*Proxy) {
 	var proxyConn net.Conn
 	var err error
 	var success bool = false
@@ -123,7 +123,7 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 		}
 	}
 
-	for _, proxySpec := range ResolveProxy(ipv4, port) {
+	for _, proxySpec := range proxies {
 		log.Debugf("Using proxy %v for %v:%v", proxySpec, ipv4, port)
 		// handle socks5 proxy
 		if proxySpec.Type == Socks5ProxyType {
@@ -258,7 +258,7 @@ func ResolveProxy(ipv4 string, port uint16) []*Proxy {
 
 func isDomain(rule string) bool {
 	return strings.IndexFunc(rule, func(r rune) bool {
-		return unicode.IsLetter(r)
+		return unicode.IsLetter(r) || r == '*'
 	}) != -1
 }
 
