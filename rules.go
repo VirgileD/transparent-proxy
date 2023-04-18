@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"sort"
 
@@ -10,16 +9,17 @@ import (
 
 	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/gookit/config/v2"
+	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 )
 
-func autoDiscoverDirects() ([]string, error) {
+func autoDiscoverDirects(noProxyList []string) ([]string, error) {
 	if routes, err := netlink.RouteList(nil, netlink.FAMILY_V4); err != nil {
 		return nil, err
 	} else {
 		set := hashset.New()
 		// default private noProxy
-		set.Add("127.0.0.1/8", "192.168.0.1/16", "172.16.0.0/12")
+		set.Add(noProxyList)
 		for _, route := range routes {
 			if route.Dst != nil && route.Src != nil {
 				set.Add(route.Dst.String())
@@ -30,6 +30,7 @@ func autoDiscoverDirects() ([]string, error) {
 			items = append(items, fmt.Sprintf("%s", k))
 		}
 		sort.Strings(items)
+		log.Infof("Direct connection to %v", items)
 		return items, nil
 	}
 }
@@ -56,14 +57,6 @@ func LoadRules() {
 		log.Fatalf("Error while reading rules: %v", err)
 		os.Exit(1)
 	}
-
-	var autoDiscoveredDirectDestinations []string
-	if autoDiscoveredDirectDestinations, err = autoDiscoverDirects(); err != nil {
-		log.Fatalf("Error while auto discovering direct rules: %v", err)
-		os.Exit(1)
-	}
-
-	rules.Set("AutoDiscovered", Rule{destinations: autoDiscoveredDirectDestinations, proxies: nil})
 
 	err = config.BindStruct("rules", &tmpRules)
 	if err != nil {

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"strconv"
 	"strings"
 
@@ -46,7 +47,13 @@ func LoadIPTables() *ipTableHandler {
 }
 
 func InstallIPTables(proxyPorts string, listenEndpointPort int, mark int) (handler *ipTableHandler, err error) {
-	var noProxyList string = config.Default().String("noProxyList", "80,443")
+	var noProxyList string = config.Default().String("noProxyList", "127.0.0.1/8,192.168.0.1/16,172.16.0.0/12")
+	var autoDiscoveredDirectDestinations []string
+	if autoDiscoveredDirectDestinations, err = autoDiscoverDirects(strings.Split(noProxyList, ",")); err != nil {
+		log.Fatalf("Error while auto discovering direct rules: %v", err)
+		os.Exit(1)
+	}
+	config.Set("noProxyList", autoDiscoveredDirectDestinations)
 
 	tables, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
@@ -108,6 +115,12 @@ func InstallIPTables(proxyPorts string, listenEndpointPort int, mark int) (handl
 
 	//  iptables -t nat -N ${IPTABELE_PREROUTING_CHAIN}
 	if err = tables.NewChain("nat", preOutingChain); err != nil {
+		return handler, err
+	}
+	handler.tables = tables
+
+	//  iptables -t nat -A ${IPTABELE_PREROUTING_CHAIN} -p tcp -j RETURN -d ${NO_PROXY_LIST}
+	if err = tables.Append("nat", preOutingChain, args("-p tcp -j RETURN -d %s", noProxyList)...); err != nil {
 		return handler, err
 	}
 	handler.tables = tables

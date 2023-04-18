@@ -108,18 +108,14 @@ func main() {
 	}
 	LoadConfig(configFile)
 
-	if resetIPTables {
-		fmt.Fprintf(os.Stdout, "Resetting IPTables\n\n")
-		LoadIPTables()
-		os.Exit(0)
-	}
+	LoadIPTables()
 
 	setupLogging()
 	setupProfiling()
 	setupStats()
 	setupStackDump()
-	//dnsProxyServer := LoadDnsServer()
-	//defer dnsProxyServer.Close()
+	dnsProxyServer := LoadDnsServer()
+	defer dnsProxyServer.Close()
 
 	LoadReverseLookupCache()
 	LoadRules()
