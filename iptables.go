@@ -22,11 +22,14 @@ func autoDiscoverDirects() ([]string, error) {
 	} else {
 		set := hashset.New()
 		// default configured noProxy
+		sort.Strings(noProxyList)
+		log.Infof("Adding auto-discovered direct routes to configuration %v", noProxyList)
 		s := make([]interface{}, len(noProxyList))
 		for i, v := range noProxyList {
 			s[i] = v
 		}
 		set.Add(s...)
+		// add autodiscovered
 		for _, route := range routes {
 			if route.Dst != nil && route.Src != nil {
 				set.Add(route.Dst.String())
@@ -37,7 +40,7 @@ func autoDiscoverDirects() ([]string, error) {
 			items = append(items, fmt.Sprintf("%s", k))
 		}
 		sort.Strings(items)
-		log.Infof("Direct connection to %v", items)
+		log.Infof("After auto-dicovering to %v", items)
 		return items, nil
 	}
 }

@@ -21,7 +21,6 @@ import (
 )
 
 var resolver = dnscache.New(time.Minute * 30)
-var ipv4RegEx, _ = regexp.Compile(`^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$`)
 
 func handleConnection(clientConn *net.TCPConn) {
 	if clientConn == nil {
@@ -126,20 +125,20 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16, pr
 		if proxySpec.Type == Socks5ProxyType {
 			socks5Dial, err := proxy.SOCKS5("tcp", proxySpec.HostPort(), proxySpec.Auth, proxy.Direct)
 			if err == nil {
-				log.Debugf("Proxyfied connection %v -> %v -> %s:%d via socks5 proxy", clientConn.RemoteAddr(), proxySpec.HostPort(), ipv4, port)
+				log.Debugf("Proxied connection %v -> %v -> %s:%d via socks5 proxy", clientConn.RemoteAddr(), proxySpec.HostPort(), ipv4, port)
 				proxyConn, err = socks5Dial.Dial("tcp", fmt.Sprintf("%s:%d", ipv4, port))
 			}
 			if err != nil {
-				log.Warnf("Proxyfied connection %v -> %v -> %s:%d via socks5 proxy failed: %v (Trying next proxy if any)", clientConn.RemoteAddr(), proxySpec, ipv4, port, err)
+				log.Warnf("Proxied connection %v -> %v -> %s:%d via socks5 proxy failed: %v (Trying next proxy if any)", clientConn.RemoteAddr(), proxySpec, ipv4, port, err)
 				continue
 			}
-			log.Debugf("Proxyfied connection %v -> %v -> %s:%d via socks5 proxy connected", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port)
+			log.Debugf("Proxied connection %v -> %v -> %s:%d via socks5 proxy connected", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port)
 			success = true
 			break
 		}
 		proxyConn, err = dial(proxySpec.HostPort())
 		if err != nil {
-			log.Warnf("Proxyfied Connection %v -> %v -> %v failed: %v", clientConn.RemoteAddr(), proxySpec, ipv4, port, err)
+			log.Warnf("Proxied Connection %v -> %v -> %v failed: %v", clientConn.RemoteAddr(), proxySpec, ipv4, port, err)
 			continue
 		}
 		log.Debugf("Proxied Connection %v -> %v -> %v connected to proxy", clientConn.RemoteAddr(), proxySpec, ipv4, port, err)
@@ -205,8 +204,8 @@ func ResolveProxy(ipv4 string, port uint16) []*Proxy {
 		for _, destination := range rule.Value.destinations {
 			log.Debugf("ResolveProxy(): testing rule %v destination %v (%v / %v /%v)", rule.Key, destination, isDomain(destination), isCIDR(destination), "dest is IP")
 			// IP
-			if isIPV4(destination) && destination == ipv4 {
-				log.Infof("Resolve proxy by destination IP %v:%v: %v", ipv4, port, rule.Key)
+			if destination == ipv4 {
+				log.Infof("Resolve proxy by destination %v IP %v => %v", destination, ipv4, port, rule.Key)
 				return rule.Value.proxies
 			} else if isCIDR(destination) {
 				_, directorIpNet, err := net.ParseCIDR(destination)
@@ -214,7 +213,7 @@ func ResolveProxy(ipv4 string, port uint16) []*Proxy {
 					panic(fmt.Sprintf("Unable to parse CIDR string : %s : %s\n", destination, err))
 				}
 				if directorIpNet.Contains(net.ParseIP(ipv4)) {
-					log.Infof("resolve proxy by destination CIDR %v:%v in %v: %v", ipv4, port, directorIpNet, rule.Key)
+					log.Infof("resolve proxy by destination CIDR %v:%v in %v => %v", ipv4, port, directorIpNet, rule.Key)
 					return rule.Value.proxies
 				}
 			} else if isDomain(destination) {
@@ -231,7 +230,7 @@ func ResolveProxy(ipv4 string, port uint16) []*Proxy {
 				}
 				*hostname = strings.TrimSuffix(*hostname, ".")
 				if re.MatchString(*hostname) {
-					log.Infof("resolve proxy by domain %v:%v is %v: %v", ipv4, port, *hostname, rule.Key)
+					log.Infof("resolve proxy by domain %v:%v / %v => %v", ipv4, port, *hostname, rule.Key)
 					return rule.Value.proxies
 				}
 			}

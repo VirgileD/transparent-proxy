@@ -66,7 +66,7 @@ func LoadConfig(configFile string) {
 			log.Fatalf("Error while reading rule %s's proxies: %v", element.Name, err)
 			os.Exit(1)
 		}
-		log.Infof("Adding rule %s with proxies: %v for destination %v", element.Name, proxies, element.Destinations)
+		log.Infof("Adding rule %s with proxies: %v for destinations %v", element.Name, element.Proxies, element.Destinations)
 		rules.Set(element.Name, Rule{destinations: element.Destinations, proxies: proxies})
 	}
 }
