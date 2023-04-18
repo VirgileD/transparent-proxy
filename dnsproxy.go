@@ -24,8 +24,9 @@ type dnsProxy struct {
 }
 
 func LoadDnsServer() *dnsProxy {
-	var DnsProxyEndPoint = config.Default().String("DnsProxyEndPoint", "127.0.0.1:53")
-	dnsProxyServer := NewDnsProxy(DnsProxyEndPoint, "")
+	var DnsProxyEndPoint = config.Default().String("listenEndpointPort", "127.0.0.1:3129")
+	var dnsProxiedPort string = ":" + strings.Split(DnsProxyEndPoint, ":")[1]
+	dnsProxyServer := NewDnsProxy(dnsProxiedPort, "")
 	if err := dnsProxyServer.ListenAndServe(false); err != nil {
 		log.Warningf("Error open dns proxy on %v: %v", DnsProxyEndPoint, err)
 	}
