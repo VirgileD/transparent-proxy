@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gookit/config/v2"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 )
@@ -24,7 +23,7 @@ type dnsProxy struct {
 }
 
 func LoadDnsServer() *dnsProxy {
-	var DnsProxyEndPoint = config.Default().String("listenEndpointPort", "127.0.0.1:3129")
+	var DnsProxyEndPoint = cfg.ListenEndpoint
 	var dnsProxiedPort string = ":" + strings.Split(DnsProxyEndPoint, ":")[1]
 	dnsProxyServer := NewDnsProxy(dnsProxiedPort, "")
 	if err := dnsProxyServer.ListenAndServe(false); err != nil {
@@ -144,9 +143,9 @@ func dialUdp(remoteAddr string) (*net.UDPConn, error) {
 		return nil, err
 	}
 	if iptablesIntegration {
-		err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, config.Default().Int("ipTableMark", 5))
+		err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, cfg.IpTableMark)
 		if err != nil {
-			log.Debugf("Cannot set sockopt with mark %v: %v", config.Default().Int("ipTableMark", 5), err)
+			log.Debugf("Cannot set sockopt with mark %v: %v", cfg.IpTableMark, err)
 			syscall.Close(fd)
 			return nil, err
 		}

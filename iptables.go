@@ -11,13 +11,12 @@ import (
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/emirpasic/gods/sets/hashset"
-	"github.com/gookit/config/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 )
 
 func autoDiscoverDirects() ([]string, error) {
-	var noProxyList []string = config.Default().Strings("noProxyList")
+	var noProxyList []string = cfg.NoProxyList
 	if routes, err := netlink.RouteList(nil, netlink.FAMILY_V4); err != nil {
 		return nil, err
 	} else {
@@ -53,8 +52,8 @@ type ipTableHandler struct {
 }
 
 func LoadIPTables() *ipTableHandler {
-	var listenEndpoint = config.Default().String("listenEndpoint", "127.0.0.1:3129")
-	var proxyPorts string = config.Default().String("proxyPorts", "80,443")
+	var listenEndpoint = cfg.ListenEndpoint
+	var proxyPorts string = cfg.ProxyPorts
 
 	var listenEndpointPort int
 	var lnaddr *net.TCPAddr
@@ -64,7 +63,7 @@ func LoadIPTables() *ipTableHandler {
 	} else {
 		listenEndpointPort = lnaddr.Port
 	}
-	ipTableHandler, err := InstallIPTables(proxyPorts, listenEndpointPort, ipTableMark)
+	ipTableHandler, err := InstallIPTables(proxyPorts, listenEndpointPort, cfg.IpTableMark)
 	if err != nil {
 		ipTableHandler.Uninstall()
 		panic(err)

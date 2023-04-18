@@ -42,6 +42,7 @@ func handleConnection(clientConn *net.TCPConn) {
 	}
 
 	var proxies = ResolveProxy(ipv4, port)
+	log.Infof("reloveproxy: %v %v %v", ipv4, port, proxies)
 	if proxies == nil {
 		handleDirectConnection(clientConn, ipv4, port)
 	} else {
@@ -165,7 +166,7 @@ func handleProxyConnection(clientConn *net.TCPConn, ipv4 string, port uint16) {
 			ioCopy(clientConn, proxyConn, "client", "proxyserver")
 			return
 		}
-		if strings.Contains(status, "301") || strings.Contains(status, "302") && relayingRedirectResponse {
+		if strings.Contains(status, "301") || strings.Contains(status, "302") && cfg.RelayingRedirectResponse {
 			log.Debugf("PROXY|%v->%v->%s:%d|Status from proxy=%s (Redirect), relaying response to client", clientConn.RemoteAddr(), proxyConn.RemoteAddr(), ipv4, port, strconv.Quote(status))
 			incrProxy300Responses()
 			fmt.Fprint(clientConn, status)
@@ -202,8 +203,10 @@ func ResolveProxy(ipv4 string, port uint16) []*Proxy {
 	var hostname *string = nil
 	// iterating pairs from oldest to newest rule:
 	for rule := rules.Oldest(); rule != nil; rule = rule.Next() {
+		log.Warningf("ResolveProxy(): testing rule %v", rule.Key)
 		//fmt.Printf("%s => %s\n", pair.Key, pair.Value)
 		for _, destination := range rule.Value.destinations {
+			log.Warningf("ResolveProxy(): testing rule %v destination %v (%v / %v /%v)", rule.Key, destination, isDomain(destination), isCIDR(destination), "dest is IP")
 			if isDomain(destination) {
 				re, err := regexp.Compile(destination)
 				if err != nil {
@@ -402,9 +405,9 @@ func dial(spec string) (net.Conn, error) {
 		log.Infof("dial(): ERR: could not create socket: %v", err)
 		return nil, err
 	}
-	err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, ipTableMark)
+	err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_MARK, cfg.IpTableMark)
 	if err != nil {
-		log.Debugf("dial(): ERR: could not set sockopt with mark %v: %v", ipTableMark, err)
+		log.Debugf("dial(): ERR: could not set sockopt with mark %v: %v", cfg.IpTableMark, err)
 		syscall.Close(fd)
 		return nil, err
 	}

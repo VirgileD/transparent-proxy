@@ -49,7 +49,6 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/gookit/config/v2"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -62,15 +61,12 @@ const SO_ORIGINAL_DST = 80
 const DEFAULTLOG = "/var/log/proxy-them-all.log"
 const STATSFILE = "/var/log/proxy-them-all.stats"
 
-var ipTableMark = config.Default().Int("ipTableMark", 5)
-var relayingRedirectResponse = config.Default().Bool("relayingRedirectResponse", true)
-
 var loglevels = map[string]log.Level{"panic": log.PanicLevel, "fatal": log.FatalLevel, "error": log.ErrorLevel,
 	"warning": log.WarnLevel, "info": log.InfoLevel, "debug": log.DebugLevel, "trace": log.TraceLevel}
 
 func setupLogging() {
 	log.SetOutput(os.Stdout)
-	log.SetLevel(loglevels[config.Default().String("loglevel", "info")])
+	log.SetLevel(loglevels[cfg.LogLevel])
 }
 
 var configFile string
@@ -116,7 +112,6 @@ func main() {
 	defer dnsProxyServer.Close()
 
 	LoadReverseLookupCache()
-	LoadRules()
 
 	listener := StartListening()
 	listenerStop := new(sync.Once)
@@ -176,7 +171,7 @@ func main() {
 }
 
 func StartListening() *net.TCPListener {
-	lnaddr, err := net.ResolveTCPAddr("tcp", config.Default().String("listeningEndpoint", "127.0.0.1:3129"))
+	lnaddr, err := net.ResolveTCPAddr("tcp", cfg.ListenEndpoint)
 	if err != nil {
 		panic(err)
 	}

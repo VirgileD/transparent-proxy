@@ -5,12 +5,10 @@ import (
 	"os/signal"
 	"runtime/pprof"
 	"time"
-
-	"github.com/gookit/config/v2"
 )
 
-var gMemProfile = config.Default().Bool("writeMemProfile", false)
-var gCpuProfile = config.Default().Bool("writeCpuProfile", false)
+var gMemProfile = cfg.WriteMemProfile
+var gCpuProfile = cfg.WriteCpuProfile
 
 const memProfilingFile = "proxy-them-all.profiling.mem"
 const cpuProfilingFile = "proxy-them-all.profiling.cpu"

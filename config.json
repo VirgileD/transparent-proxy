@@ -1,6 +1,6 @@
 {
-    "ipTableMark": 5,
-    "listenEndpoint": "127.0.0.1:3129",
+    "ip_table_mark": 5,
+    "listen_endpoint": "127.0.0.1:3129",
     "proxyPorts": "80,443",
     "noProxyList": ["127.0.0.1/8","192.168.0.1/16","172.16.0.0/12"],
     "writeMemProfile": false,
@@ -10,7 +10,7 @@
     "rules": [{
          "name": "KazanHarborRegistries",
          "destinations": [ "10.157.72.10", "10.157.65.17", ".*\\.svc\\.meshcore\\.net" ],
-         "proxies": null
+         "proxies": []
         },
         {
             "name": "WL-Labs-Infra",
@@ -19,7 +19,7 @@
                "10.26.83.0/16",
                "192.168.0.0/16"
             ],
-            "proxies": null
+            "proxies": []
            },
         {
             "name": "Meshcore",
