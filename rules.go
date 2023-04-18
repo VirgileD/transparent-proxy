@@ -19,7 +19,11 @@ func autoDiscoverDirects(noProxyList []string) ([]string, error) {
 	} else {
 		set := hashset.New()
 		// default private noProxy
-		set.Add(noProxyList)
+		s := make([]interface{}, len(noProxyList))
+		for i, v := range noProxyList {
+			s[i] = v
+		}
+		set.Add(s...)
 		for _, route := range routes {
 			if route.Dst != nil && route.Src != nil {
 				set.Add(route.Dst.String())
