@@ -44,7 +44,7 @@ func handleConnection(clientConn *net.TCPConn) {
 
 	var proxies = ResolveProxy(ipv4, port)
 	log.Infof("reloveproxy: %v %v %v", ipv4, port, proxies)
-	if proxies == nil {
+	if len(proxies) == 0 {
 		handleDirectConnection(clientConn, ipv4, port)
 	} else {
 		handleProxyConnection(clientConn, ipv4, port, proxies)
