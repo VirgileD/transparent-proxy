@@ -11,18 +11,18 @@ import (
 )
 
 type ProxEmAllConfig struct {
-	IpTableMark              int      `json:"ipTableMark" default:"4"`
-	ListenEndpoint           string   `json:"listenEndpoint" default:"127.0.0.1:3129"`
-	ProxyPorts               string   `json:"proxyPorts" default:"80,443"`
-	NoProxyList              []string `json:"noProxyList" default:"[ '172.16.0.0/12']"`
-	WriteMemProfile          bool     `json:"writeMemProfile" default:"false"`
-	WriteCpuProfile          bool     `json:"writeCpuProfile" default:"false"`
-	RelayingRedirectResponse bool     `json:"relayingRedirectResponse" default:"true"`
-	LogLevel                 string   `json:"loglevel" default:"info"`
+	IpTableMark              int      `json:"ipTableMark" default:"5" usage:"Table mark used in iptables"`
+	ListenEndpoint           string   `json:"listenEndpoint" default:"127.0.0.1:3129" usage:"This proxy endpoint"`
+	ProxyPorts               string   `json:"proxyPorts" default:"80,443" usage="The ports to redirect to this proxy"`
+	NoProxyList              []string `json:"noProxyList" default:"[]" usage="a list of netmask that will never be redirected to this proxy - auto-discovering should do in most cases"`
+	WriteMemProfile          bool     `json:"writeMemProfile" default:"false" usage:"write the mem profiling in proxy-them-all.profiling.mem file"`
+	WriteCpuProfile          bool     `json:"writeCpuProfile" default:"false" usage:"write the cpu profiling in proxy-them-all.profiling.cpu file"`
+	RelayingRedirectResponse bool     `json:"relayingRedirectResponse" default:"true" usage:"when the destination answer with a 3XX, relay the response to the caller so it can update the destination url"`
+	LogLevel                 string   `json:"loglevel" default:"info" usage:"set the log level between: panic, fatal, error, warning, info, debug, trace. panic and fatal will terminate the process"`
 	Rules                    []struct {
-		Name         string   `json:"name"`
-		Destinations []string `json:"destinations"`
-		Proxies      []string `json:"proxies"`
+		Name         string   `json:"name" usage:"A human name for this specific proxying rule"`
+		Destinations []string `json:"destinations" usage:"If one of the destinations here corresponds to the requested one, use the proxies defined in this rule. It can be an IP, a CIDR or a regex that must match the destination hostname"`
+		Proxies      []string `json:"proxies" usage:"a list of socks:// or http:// proxy to use when this rule apply. Apply in order, if one fails the next is used until no proxy remains. In this case try a direct connection."`
 	}
 }
 
